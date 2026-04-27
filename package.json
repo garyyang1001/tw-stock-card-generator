@@ -1,0 +1,15 @@
+{
+  "name": "tw-stock-card-generator",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Fixed-template Taiwan stock analysis card generator using HTML/CSS/JS and Playwright screenshots.",
+  "scripts": {
+    "render": "node render.js --data data/sample-3228.json --out output/3228-card.png",
+    "test": "python3 -m pytest tests -q"
+  },
+  "dependencies": {
+    "@playwright/test": "latest",
+    "playwright": "latest"
+  },
+  "devDependencies": {}
+}

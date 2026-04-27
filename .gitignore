@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Node / Playwright
+node_modules/
+playwright-report/
+test-results/
+
+# Render artifacts
+.render.html
+output/
+
+# Local secrets / env
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.mobileprovision
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

@@ -6,8 +6,14 @@ from stock_data import (
     build_card_json,
     compute_indicators,
     normalize_broker_rows,
+    normalize_finmind_broker_rows,
     normalize_finmind_price_rows,
+    resolve_stock,
     summarize_broker_flow,
+    build_dynamic_long_view,
+    build_technical_conclusion,
+    build_dynamic_risks,
+    compute_key_levels,
     fetch_official_broker_flow,
 )
 
@@ -46,6 +52,19 @@ def test_compute_indicators_returns_core_values():
     assert 0 <= ind["rsi"] <= 100
     assert set(["dif", "dea", "hist"]).issubset(ind["macd"])
     assert set(["k", "d"]).issubset(ind["kd"])
+    assert ind["atr14"] > 0
+
+
+def test_resolve_stock_accepts_common_chinese_aliases():
+    assert resolve_stock("盟立") == ("6245", "盟立")
+    assert resolve_stock("星宇") == ("2646", "星宇航空")
+    assert resolve_stock("台積電") == ("2330", "台積電")
+    assert resolve_stock("2330") == ("2330", "台積電")
+    assert resolve_stock("統一") == ("1216", "統一")
+    assert resolve_stock("光環") == ("3234", "光環")
+    assert resolve_stock("十詮") == ("4967", "十銓")
+    assert resolve_stock("東捷") == ("8064", "東捷")
+    assert resolve_stock("國精化") == ("4722", "國精化")
 
 
 def test_build_card_json_for_4979_huaxingguang_shape():
@@ -53,10 +72,75 @@ def test_build_card_json_for_4979_huaxingguang_shape():
     assert data["stock"]["code"] == "4979"
     assert data["stock"]["name"] == "華星光"
     assert len(data["ohlc"]) >= 40
+    assert len(data["chips"]["price"]) == 10
+    assert data["chips"]["price"][0]["close"] == data["ohlc"][-1]["close"]
+    assert data["stock"]["updated_at"] == data["ohlc"][-1]["date"]
+    assert "fundamentals" in data
+    assert data["fundamentals"]["score"] == 3
+    assert len(data["advice"]["risks"]) <= 5
     assert data["advice"]["levels"]["resistance"]
+    assert data["advice"]["levels"]["factors"]["support"]
+    assert "ATR14" in data["advice"]["levels"]["factors"]["volatility"]
     assert data["scores"][0]["item"] == "股價趨勢"
-    assert "偏強" in data["technical"]["conclusion"] or "高檔" in data["technical"]["conclusion"]
+    assert "；" in data["technical"]["conclusion"]
+    assert any(token in data["technical"]["conclusion"] for token in ["支撐區", "壓力區", "區間"])
     assert float(data["advice"]["levels"]["stop_loss"].replace("～", "").split()[0]) > data["stock"]["price"] * 0.45
+
+
+def test_technical_conclusion_mentions_volume_and_position():
+    ohlc = normalize_finmind_price_rows(sample_price_rows())
+    ohlc[-1]["volume"] = ohlc[-2]["volume"] * 3
+    ohlc[-1]["close"] = ohlc[-2]["close"] * 1.05
+    ohlc[-1]["high"] = ohlc[-1]["close"] * 1.01
+    ind = compute_indicators(ohlc)
+    text = build_technical_conclusion(ohlc, ind, compute_key_levels(ohlc, ind))
+
+    assert any(token in text for token in ["追價風險", "動能"])
+    assert any(token in text for token in ["壓力區", "支撐區", "高檔區", "低檔區", "區間中段"])
+
+
+def test_dynamic_risks_prioritizes_multiple_risk_types():
+    ohlc = normalize_finmind_price_rows(sample_price_rows())
+    ind = compute_indicators(ohlc)
+    risks = build_dynamic_risks(
+        ohlc,
+        ind,
+        compute_key_levels(ohlc, ind),
+        [{"total": -1000}, {"total": -500}, {"total": -300}],
+        {"status": "token_required", "summary": {"sell_concentration": 0}},
+        {
+            "revenue": {"status": "ok", "yoy_pct": -10},
+            "financial": {"status": "ok", "operating_margin": 5},
+            "valuation": {"status": "ok", "per": 55, "pbr": 9},
+            "events": {"status": "ok", "items": [{"title": "財報不如預期 股價下跌"}]},
+        },
+    )
+
+    categories = {r["category"] for r in risks}
+    assert len(risks) <= 5
+    assert {"估值", "事件", "基本面"}.issubset(categories)
+
+
+def test_dynamic_long_view_changes_with_fundamental_context():
+    strong = build_dynamic_long_view({
+        "score": 5,
+        "revenue": {"status": "ok", "yoy_pct": 45.0},
+        "financial": {"status": "ok", "operating_margin": 28.0, "gross_margin": 40.0},
+        "valuation": {"status": "ok", "per": 22.0},
+        "events": {"status": "ok"},
+    }, above_ma20=True, hot=False)
+    weak = build_dynamic_long_view({
+        "score": 2,
+        "revenue": {"status": "ok", "yoy_pct": -12.0},
+        "financial": {"status": "ok", "operating_margin": 5.0, "gross_margin": 12.0},
+        "valuation": {"status": "ok", "per": 52.0},
+        "events": {"status": "no_data"},
+    }, above_ma20=False, hot=True)
+
+    assert "強勁" in strong[0]
+    assert "具支撐" in strong[1]
+    assert "轉弱" in weak[0]
+    assert "估值偏高" in weak[2]
 
 
 def test_normalize_broker_rows_sorts_top_buy_and_sell_in_lots():
@@ -75,6 +159,20 @@ def test_normalize_broker_rows_sorts_top_buy_and_sell_in_lots():
     assert summary["top_sell"][0]["net"] == -1500
     assert summary["summary"]["buy_concentration"] > 0
     assert summary["summary"]["sell_concentration"] > 0
+
+
+def test_normalize_finmind_broker_rows_aggregates_by_branch_in_lots():
+    rows = normalize_finmind_broker_rows([
+        {"date": "2026-04-28", "securities_trader": "合庫", "securities_trader_id": "1020", "buy": 4000000, "sell": 2000000},
+        {"date": "2026-04-28", "securities_trader": "合庫", "securities_trader_id": "1020", "buy": 1000000, "sell": 0},
+        {"date": "2026-04-28", "securities_trader": "元大", "securities_trader_id": "9800", "buy": 1000000, "sell": 3500000},
+    ])
+    summary = summarize_broker_flow(rows, date_label="04/28")
+
+    assert summary["top_buy"][0]["broker"] == "合庫-1020"
+    assert summary["top_buy"][0]["net"] == 3000
+    assert summary["top_sell"][0]["broker"] == "元大-9800"
+    assert summary["top_sell"][0]["net"] == -2500
 
 
 def test_build_card_json_contains_broker_branch_flow():

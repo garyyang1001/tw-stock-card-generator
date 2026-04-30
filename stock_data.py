@@ -688,10 +688,65 @@ def fetch_broker_flow(code, trade_date=None, token=None):
     return official
 
 
-def broker_conclusion(brokers, institutional_rows=None):
+def sign_text(value):
+    return f"+{value}" if value > 0 else str(value)
+
+
+def build_broker_fallback(brokers, institutional_rows=None, ohlc=None):
+    if brokers.get("status") not in {"token_required", "no_data"}:
+        return None
+    if brokers.get("top_buy") or brokers.get("top_sell"):
+        return None
+
+    recent_inst = (institutional_rows or [])[:3]
+    inst_total = sum(int(r.get("total", 0)) for r in recent_inst)
+    if inst_total > 0:
+        inst_tone = "up"
+        inst_text = "法人近3日偏買，分點缺口先用法人方向輔助判讀。"
+    elif inst_total < 0:
+        inst_tone = "down"
+        inst_text = "法人近3日偏賣，缺少分點時需提高追價風險意識。"
+    else:
+        inst_tone = "neutral"
+        inst_text = "法人近3日方向不明，籌碼面先視為中性。"
+
+    volume_ratio = 1
+    change_pct = 0
+    volume_tone = "neutral"
+    volume_text = "量價結構中性，暫以支撐壓力與法人方向交叉觀察。"
+    if ohlc and len(ohlc) >= 2:
+        last, prev = ohlc[-1], ohlc[-2]
+        avg_volume20 = sma([r["volume"] for r in ohlc[-20:]], 20)
+        volume_ratio = last["volume"] / avg_volume20 if avg_volume20 else 1
+        change_pct = (last["close"] - prev["close"]) / prev["close"] * 100 if prev["close"] else 0
+        if volume_ratio >= 1.5 and change_pct > 0:
+            volume_tone = "up"
+            volume_text = "放量收紅，短線承接力優先觀察是否延續。"
+        elif volume_ratio >= 1.5 and change_pct < 0:
+            volume_tone = "down"
+            volume_text = "放量收黑，需防籌碼換手失敗或賣壓放大。"
+        elif volume_ratio < 0.7:
+            volume_text = "量縮整理，方向仍需等待放量確認。"
+
+    return {
+        "status": "proxy",
+        "title": "分點需授權資料源",
+        "note": "未使用假分點資料；改以法人買賣超與量價結構輔助判讀。",
+        "items": [
+            {"label": "法人近3日", "value": f"{sign_text(inst_total)} 張", "tone": inst_tone, "text": inst_text},
+            {"label": "量價結構", "value": f"{volume_ratio:.1f}x / {change_pct:+.1f}%", "tone": volume_tone, "text": volume_text},
+        ],
+    }
+
+
+def broker_conclusion(brokers, institutional_rows=None, ohlc=None):
     top_buy = brokers.get("top_buy") or []
     top_sell = brokers.get("top_sell") or []
     if not top_buy and not top_sell:
+        fallback = brokers.get("fallback") or build_broker_fallback(brokers, institutional_rows, ohlc)
+        if fallback:
+            signals = "；".join(f"{item['label']} {item['value']}，{item['text']}" for item in fallback.get("items", []))
+            return f"{fallback['title']}，不以假資料補分點；改看 {signals}"
         if brokers.get("status") == "no_data":
             return "官方 OpenAPI 目前沒有此股票的券商進出排行；本圖不使用假資料補齊分點訊號。"
         if brokers.get("status") == "token_required":
@@ -995,7 +1050,10 @@ def build_card_json(code, name, ohlc, institutional=None, brokers=None, fundamen
     tech_conclusion = build_technical_conclusion(ohlc, ind, key_levels)
     chip_rows = institutional or empty_chip_rows(ohlc)
     broker_rows = brokers or summarize_broker_flow([], date_label=last["date"])
-    chip_conclusion = broker_conclusion(broker_rows, chip_rows)
+    fallback = build_broker_fallback(broker_rows, chip_rows, ohlc)
+    if fallback:
+        broker_rows = {**broker_rows, "fallback": fallback}
+    chip_conclusion = broker_conclusion(broker_rows, chip_rows, ohlc)
     fundamentals = build_fundamental_summary(fundamentals)
     event_summary = fundamentals.get("events", {}).get("summary", "近期事件資料不足。")
     risks = build_dynamic_risks(ohlc, ind, key_levels, chip_rows, broker_rows, fundamentals)

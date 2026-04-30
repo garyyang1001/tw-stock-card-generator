@@ -192,6 +192,39 @@ def test_build_card_json_contains_broker_branch_flow():
     assert "隔日沖" in data["chips"]["brokers"]["warning"]
 
 
+def test_build_card_json_adds_fallback_when_broker_flow_requires_token():
+    institutional = [
+        {"date": "04/29", "foreign": 350, "trust": 60, "dealer": -30, "total": 380},
+        {"date": "04/28", "foreign": -120, "trust": 20, "dealer": 10, "total": -90},
+        {"date": "04/27", "foreign": 210, "trust": 0, "dealer": 20, "total": 230},
+    ]
+    brokers = {
+        "date": "04/29",
+        "top_buy": [],
+        "top_sell": [],
+        "summary": {"buy_concentration": 0, "sell_concentration": 0, "net_top5": 0},
+        "warning": "上市股券商分點資料需要 FinMind sponsor token。",
+        "source": "FinMind / TaiwanStockTradingDailyReport",
+        "status": "token_required",
+    }
+
+    data = build_card_json(
+        "2646",
+        "星宇航空",
+        normalize_finmind_price_rows(sample_price_rows()),
+        institutional=institutional,
+        brokers=brokers,
+    )
+
+    fallback = data["chips"]["brokers"]["fallback"]
+    assert fallback["status"] == "proxy"
+    assert fallback["title"] == "分點需授權資料源"
+    assert any(item["label"] == "法人近3日" for item in fallback["items"])
+    assert any(item["label"] == "量價結構" for item in fallback["items"])
+    assert "法人近3日" in data["chips"]["conclusion"]
+    assert "量價" in data["chips"]["conclusion"]
+
+
 @pytest.mark.skipif(not LIVE_TESTS, reason="requires live TPEx OpenAPI data")
 def test_fetch_official_broker_flow_uses_tpex_openapi_without_fake_data():
     brokers = fetch_official_broker_flow("6182")

@@ -9,12 +9,12 @@
 <body>
   <div id="app" class="dashboard">
     <header class="topbar">
-      <div><span class="stock-name" data-bind="stock.name"></span> <span class="stock-code" data-bind="stock.code"></span> <span class="title">分析與建議</span></div>
+      <div><span class="stock-name" data-bind="stock.name"></span> <span class="stock-code" data-bind="stock.code"></span> <span class="title" data-bind="stock.title">分析與建議</span></div>
       <div class="market-strip">
-        <span>最新價 <b class="up" data-bind="stock.price"></b></span>
-        <span class="up">▲ <b data-bind="stock.change"></b> (<b data-bind="stock.change_pct"></b>%)</span>
+        <span>最新價 <b id="priceValue" data-bind="stock.price"></b></span>
+        <span id="changeChip"><span id="changeArrow"></span> <b data-bind="stock.change"></b> (<b data-bind="stock.change_pct"></b>%)</span>
         <span>成交量 <b class="yellow" data-bind="stock.volume"></b> 張</span>
-        <span>更新時間 <b class="yellow" data-bind="stock.updated_at"></b></span>
+        <span>資料時間 <b class="yellow" data-bind="stock.updated_at"></b></span>
       </div>
     </header>
     <main class="grid">
@@ -24,27 +24,27 @@
         <div class="chart-card small"><div class="chart-title">RSI（14） <small id="rsiText"></small></div><svg id="rsiChart"></svg></div>
         <div class="chart-card small"><div class="chart-title">MACD（12,26,9） <small id="macdText"></small></div><svg id="macdChart"></svg></div>
         <div class="chart-card small"><div class="chart-title">KD（9,3,3） <small id="kdText"></small></div><svg id="kdChart"></svg></div>
-        <div class="conclusion"><b>📊 技術面結論</b><p data-bind="technical.conclusion"></p></div>
+        <div class="conclusion"><b>技術面結論</b><p data-bind="technical.conclusion"></p></div>
       </section>
       <section class="panel chip-panel">
         <h2>二、籌碼面分析</h2>
         <div class="chart-card chipchart"><div class="chart-title">三大法人近 10 日籌碼動向</div><svg id="chipChart"></svg></div>
         <div class="table-card"><h3>法人買賣超（單位：張）</h3><table id="instTable"></table></div>
-        <div class="broker-card"><h3>分點進出 <span id="brokerDate" class="muted"></span></h3><div id="brokerFlow" class="broker-flow"></div><div id="brokerStats" class="broker-stats"></div><p id="brokerWarning" class="broker-warning"></p></div>
-        <div class="conclusion"><b>👥 籌碼結論</b><p data-bind="chips.conclusion"></p></div>
+        <div class="broker-card"><h3>券商分點進出 <span id="brokerDate" class="muted"></span></h3><div id="brokerFlow" class="broker-flow"></div><div id="brokerStats" class="broker-stats"></div><p id="brokerWarning" class="broker-warning"></p></div>
+        <div class="conclusion"><b>籌碼面結論</b><p data-bind="chips.conclusion"></p></div>
       </section>
       <section class="panel advice-panel">
-        <h2>三、操作建議</h2>
+        <h2>三、綜合研判</h2>
         <div class="two-col">
-          <div class="advice-box"><h3>💡 我的建議</h3><b>短線操作建議</b><ul id="adviceBullets"></ul></div>
+          <div class="advice-box"><h3>研判重點</h3><b>短線與基本面重點</b><ul id="adviceBullets"></ul></div>
           <div class="levels"><h3>關鍵價位區</h3><p>壓力區：<b class="up" data-bind="advice.levels.resistance"></b></p><p>支撐區：<b class="yellow" data-bind="advice.levels.support"></b></p><p>強支撐：<b class="down" data-bind="advice.levels.strong_support"></b></p><p>停損參考：<b data-bind="advice.levels.stop_loss"></b></p></div>
         </div>
-        <div class="path-box"><h3>🧭 可能路徑</h3><div class="path-grid"><div id="paths"></div><svg id="pathSvg" viewBox="0 0 260 120"><path d="M10 75 C70 70 90 35 145 26 S210 18 248 8" stroke="#23e06e" fill="none" stroke-width="5"/><path d="M10 72 C55 61 88 83 125 76 S185 76 245 105" stroke="#ffd45a" fill="none" stroke-width="4"/><path d="M185 78 L248 112" stroke="#ff3b3b" stroke-width="5"/><line x1="10" y1="72" x2="250" y2="72" stroke="#36628f" stroke-dasharray="5 6"/></svg></div></div>
-        <div class="two-col mid"><div class="long-view"><h3>中長線看法</h3><ul id="longView"></ul></div><div class="risk"><h3>⚠ 風險提醒</h3><p data-bind="advice.risk"></p></div></div>
-        <div class="score"><h3>重點總結（綜合評分）</h3><div class="score-grid"><table id="scoreTable"></table><div class="overall"><b>綜合評估</b><p data-bind="advice.overall"></p></div></div></div>
+        <div class="path-box"><h3>情境觀察</h3><div class="path-grid"><div id="paths"></div><svg id="pathSvg" viewBox="0 0 260 120"><path d="M10 75 C70 70 90 35 145 26 S210 18 248 8" stroke="#23e06e" fill="none" stroke-width="5"/><path d="M10 72 C55 61 88 83 125 76 S185 76 245 105" stroke="#ffd45a" fill="none" stroke-width="4"/><path d="M185 78 L248 112" stroke="#ff3b3b" stroke-width="5"/><line x1="10" y1="72" x2="250" y2="72" stroke="#36628f" stroke-dasharray="5 6"/></svg></div></div>
+        <div class="two-col mid"><div class="long-view"><h3>中長線看法</h3><ul id="longView"></ul></div><div class="risk"><h3>風險提醒</h3><ul id="riskList"></ul></div></div>
+        <div class="score"><h3>重點總結</h3><div class="score-grid"><div id="scoreTable" class="score-list"></div><div class="overall"><span class="overall-label">綜合評估</span><b id="overallStars"></b><p data-bind="advice.overall"></p></div></div></div>
       </section>
     </main>
-    <footer class="disclaimer">ⓘ 本圖為技術與籌碼分析整理，不代表保證獲利，操作前請依個人資金控管與風險承受度判斷。</footer>
+    <footer class="disclaimer">本圖為技術與籌碼分析整理，不代表保證獲利；操作前請依個人資金控管與風險承受度判斷。</footer>
   </div>
 <script src="template.js"></script>
 </body>

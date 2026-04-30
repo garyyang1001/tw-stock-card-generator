@@ -22,3 +22,5 @@ def test_render_script_exists_and_accepts_data_output_args():
     assert "--data" in js
     assert "--out" in js
     assert "playwright" in js.lower()
+    assert "Asia/Taipei" in js
+    assert "data.stock?.name" in js

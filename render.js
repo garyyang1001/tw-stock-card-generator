@@ -7,11 +7,31 @@ function arg(name, fallback) {
   return i >= 0 ? process.argv[i + 1] : fallback;
 }
 
+function taipeiDateStamp() {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Taipei',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+  const get = (type) => parts.find((p) => p.type === type).value;
+  return `${get('year')}${get('month')}${get('day')}`;
+}
+
+function safeFilename(value) {
+  return String(value || 'stock')
+    .trim()
+    .replace(/[\\/:*?"<>|]/g, '-')
+    .replace(/\s+/g, ' ')
+    .slice(0, 80) || 'stock';
+}
+
 async function main() {
   const dataPath = arg('--data', 'data/sample-3228.json');
-  const outPath = arg('--out', 'output/3228-card.png');
   const root = __dirname;
   const data = JSON.parse(fs.readFileSync(path.resolve(root, dataPath), 'utf8'));
+  const defaultName = `${safeFilename(data.stock?.name || data.stock?.code)}-${taipeiDateStamp()}.png`;
+  const outPath = arg('--out', path.join('output', defaultName));
   const htmlPath = path.resolve(root, 'template.html');
   let html = fs.readFileSync(htmlPath, 'utf8');
   html = html.replace('<script src="template.js"></script>', `<script>window.__STOCK_DATA__=${JSON.stringify(data)};</script><script src="template.js"></script>`);

@@ -17,6 +17,9 @@ def test_template_contains_dashboard_regions():
     for token in ["topbar", "technical-panel", "chip-panel", "advice-panel", "disclaimer", "brokerFlow", "compositeReview", "powerGauge"]:
         assert token in html
     assert html.index("kdChart") < html.index("powerGauge") < html.index("chip-panel")
+    assert "path-box" not in html
+    assert "pathSvg" not in html
+    assert 'id="paths"' not in html
     assert 'data-bind="technical.conclusion"' not in html
     assert 'data-bind="chips.conclusion"' not in html
 

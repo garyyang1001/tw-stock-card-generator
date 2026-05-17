@@ -22,7 +22,7 @@ let composite=DATA.advice.composite||[
 $('#compositeReview').innerHTML=composite.map(r=>`<div class="composite-row"><b>${r.label}</b><span>${r.text}</span></div>`).join('');
 $('#longView').innerHTML=DATA.advice.long_view.map(x=>`<li>${x}</li>`).join('');
 $('#riskList').innerHTML=(DATA.advice.risks||[{category:'綜合',text:DATA.advice.risk}]).slice(0,5).map(r=>`<li><b>${r.category}</b><span>${r.text}</span></li>`).join('');
-$('#paths').innerHTML=`<p><b class="down">上漲路徑：</b><br>${DATA.advice.paths.up}</p><p><b class="yellow">回檔路徑：</b><br>${DATA.advice.paths.pullback}</p><p><b class="up">轉弱路徑：</b><br>${DATA.advice.paths.weak}</p>`;
+let pathsEl=$('#paths');if(pathsEl)pathsEl.innerHTML=`<p><b class="down">上漲路徑：</b><br>${DATA.advice.paths.up}</p><p><b class="yellow">回檔路徑：</b><br>${DATA.advice.paths.pullback}</p><p><b class="up">轉弱路徑：</b><br>${DATA.advice.paths.weak}</p>`;
 }
 function svgLine(svg,x1,y1,x2,y2,cls='gridline'){let l=document.createElementNS('http://www.w3.org/2000/svg','line');l.setAttribute('x1',x1);l.setAttribute('y1',y1);l.setAttribute('x2',x2);l.setAttribute('y2',y2);l.setAttribute('class',cls);svg.appendChild(l);return l}
 function svgText(svg,x,y,t,anchor='start',fill){let e=document.createElementNS('http://www.w3.org/2000/svg','text');e.setAttribute('x',x);e.setAttribute('y',y);e.setAttribute('text-anchor',anchor);if(fill)e.setAttribute('fill',fill);e.textContent=t;svg.appendChild(e);return e}

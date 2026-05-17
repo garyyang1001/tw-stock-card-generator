@@ -18,6 +18,8 @@ def test_template_contains_dashboard_regions():
         assert token in html
     assert html.index("kdChart") < html.index("powerGauge") < html.index("chip-panel")
     assert html.index("brokerFlow") < html.index("costPanel") < html.index("advice-panel")
+    assert 'class="level-row"' in html
+    assert html.index("壓力區：") < html.index('data-bind="advice.levels.resistance"')
     assert "path-box" not in html
     assert "pathSvg" not in html
     assert 'id="paths"' not in html

@@ -16,6 +16,7 @@ def test_template_contains_dashboard_regions():
     html = (ROOT / "template.html").read_text()
     for token in ["topbar", "technical-panel", "chip-panel", "advice-panel", "disclaimer", "brokerFlow", "compositeReview", "powerGauge"]:
         assert token in html
+    assert html.index("kdChart") < html.index("powerGauge") < html.index("chip-panel")
     assert 'data-bind="technical.conclusion"' not in html
     assert 'data-bind="chips.conclusion"' not in html
 

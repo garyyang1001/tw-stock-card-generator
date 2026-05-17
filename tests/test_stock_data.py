@@ -63,6 +63,7 @@ def test_resolve_stock_accepts_common_chinese_aliases():
     assert resolve_stock("2330") == ("2330", "台積電")
     assert resolve_stock("統一") == ("1216", "統一")
     assert resolve_stock("光環") == ("3234", "光環")
+    assert resolve_stock("漢磊") == ("3707", "漢磊")
     assert resolve_stock("十詮") == ("4967", "十銓")
     assert resolve_stock("東捷") == ("8064", "東捷")
     assert resolve_stock("國精化") == ("4722", "國精化")

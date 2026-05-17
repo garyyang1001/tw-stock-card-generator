@@ -13,8 +13,10 @@ STOCK_NAME_BY_CODE = {
     "2330": "台積電",
     "2382": "廣達",
     "2383": "台光電",
+    "2406": "國碩",
     "2409": "友達",
     "2454": "聯發科",
+    "2464": "盟立",
     "2603": "長榮",
     "2609": "陽明",
     "2610": "華航",
@@ -32,9 +34,11 @@ STOCK_NAME_BY_CODE = {
     "4722": "國精化",
     "4967": "十銓",
     "4979": "華星光",
-    "6245": "盟立",
+    "5434": "崇越",
+    "6245": "立端",
     "6442": "光聖",
     "8064": "東捷",
+    "8291": "尚茂",
 }
 
 STOCK_ALIAS_TO_CODE = {
@@ -48,8 +52,11 @@ STOCK_ALIAS_TO_CODE = {
     "鴻海": "2317",
     "廣達": "2382",
     "台光電": "2383",
+    "國碩": "2406",
+    "國碩科技": "2406",
     "友達": "2409",
     "聯發科": "2454",
+    "盟立": "2464",
     "長榮": "2603",
     "陽明": "2609",
     "華航": "2610",
@@ -71,10 +78,14 @@ STOCK_ALIAS_TO_CODE = {
     "十詮": "4967",
     "華星光": "4979",
     "華新光": "4979",  # common typo / user shorthand
-    "盟立": "6245",
+    "崇越": "5434",
+    "崇越科技": "5434",
+    "立端": "6245",
+    "立端科技": "6245",
     "光聖": "6442",
     "寶隆": "1906",
     "東捷": "8064",
+    "尚茂": "8291",
 }
 
 
@@ -1065,6 +1076,12 @@ def build_card_json(code, name, ohlc, institutional=None, brokers=None, fundamen
         overall = "技術面偏強，基本面訊號中性，適合等待回檔或確認事件利多延續。"
     else:
         overall = "技術面整理，基本面需持續追蹤，短線宜保守觀察。"
+    composite = [
+        {"label": "技術面", "text": tech_conclusion},
+        {"label": "籌碼面", "text": chip_conclusion},
+        {"label": "基本面", "text": fundamentals.get("summary", "基本面資料不足，需搭配技術與籌碼觀察。")},
+        {"label": "操作結論", "text": overall},
+    ]
     return {
         "stock": {"name": name, "code": code, "title": "分析與建議", "price": last["close"], "change": change, "change_pct": change_pct, "volume": f"{last['volume']:,}", "updated_at": last["date"]},
         "ohlc": ohlc[-64:],
@@ -1084,6 +1101,7 @@ def build_card_json(code, name, ohlc, institutional=None, brokers=None, fundamen
             "long_view": build_dynamic_long_view(fundamentals, above_ma20, hot),
             "risks": risks,
             "risk": "；".join(f"{r['category']}：{r['text']}" for r in risks),
+            "composite": composite,
             "overall": overall,
         },
         "scores": [

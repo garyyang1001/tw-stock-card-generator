@@ -12,7 +12,12 @@ $('#maText').textContent=`MA5 ${DATA.technical.ma5}　MA20 ${DATA.technical.ma20
 $('#rsiText').textContent=`RSI ${DATA.technical.rsi}`;
 $('#macdText').textContent=`DIF ${DATA.technical.macd.dif}　DEA ${DATA.technical.macd.dea}　MACD ${DATA.technical.macd.hist}`;
 $('#kdText').textContent=`K ${DATA.technical.kd.k}　D ${DATA.technical.kd.d}`;
-$('#adviceBullets').innerHTML=DATA.advice.bullets.map(x=>`<li>${x}</li>`).join('');
+let composite=DATA.advice.composite||[
+  {label:'技術面',text:DATA.technical.conclusion},
+  {label:'籌碼面',text:DATA.chips.conclusion},
+  {label:'操作結論',text:DATA.advice.overall}
+];
+$('#compositeReview').innerHTML=composite.map(r=>`<div class="composite-row"><b>${r.label}</b><span>${r.text}</span></div>`).join('');
 $('#longView').innerHTML=DATA.advice.long_view.map(x=>`<li>${x}</li>`).join('');
 $('#riskList').innerHTML=(DATA.advice.risks||[{category:'綜合',text:DATA.advice.risk}]).slice(0,5).map(r=>`<li><b>${r.category}</b><span>${r.text}</span></li>`).join('');
 $('#paths').innerHTML=`<p><b class="down">上漲路徑：</b><br>${DATA.advice.paths.up}</p><p><b class="yellow">回檔路徑：</b><br>${DATA.advice.paths.pullback}</p><p><b class="up">轉弱路徑：</b><br>${DATA.advice.paths.weak}</p>`;

@@ -56,7 +56,8 @@ def test_compute_indicators_returns_core_values():
 
 
 def test_resolve_stock_accepts_common_chinese_aliases():
-    assert resolve_stock("盟立") == ("6245", "盟立")
+    assert resolve_stock("盟立") == ("2464", "盟立")
+    assert resolve_stock("立端") == ("6245", "立端")
     assert resolve_stock("星宇") == ("2646", "星宇航空")
     assert resolve_stock("台積電") == ("2330", "台積電")
     assert resolve_stock("2330") == ("2330", "台積電")
@@ -84,6 +85,11 @@ def test_build_card_json_for_4979_huaxingguang_shape():
     assert data["scores"][0]["item"] == "股價趨勢"
     assert "；" in data["technical"]["conclusion"]
     assert any(token in data["technical"]["conclusion"] for token in ["支撐區", "壓力區", "區間"])
+    composite = data["advice"]["composite"]
+    assert [row["label"] for row in composite] == ["技術面", "籌碼面", "基本面", "操作結論"]
+    assert composite[0]["text"] == data["technical"]["conclusion"]
+    assert composite[1]["text"] == data["chips"]["conclusion"]
+    assert data["advice"]["overall"] == composite[-1]["text"]
     assert float(data["advice"]["levels"]["stop_loss"].replace("～", "").split()[0]) > data["stock"]["price"] * 0.45
 
 

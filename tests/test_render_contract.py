@@ -14,8 +14,10 @@ def test_sample_data_has_required_sections():
 
 def test_template_contains_dashboard_regions():
     html = (ROOT / "template.html").read_text()
-    for token in ["topbar", "technical-panel", "chip-panel", "advice-panel", "disclaimer", "brokerFlow"]:
+    for token in ["topbar", "technical-panel", "chip-panel", "advice-panel", "disclaimer", "brokerFlow", "compositeReview"]:
         assert token in html
+    assert 'data-bind="technical.conclusion"' not in html
+    assert 'data-bind="chips.conclusion"' not in html
 
 def test_render_script_exists_and_accepts_data_output_args():
     js = (ROOT / "render.js").read_text()

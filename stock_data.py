@@ -516,6 +516,58 @@ def price_rows_for_chip_chart(ohlc, limit=10):
     return [{"date": r["date"], "close": r["close"]} for r in ohlc[-limit:][::-1]]
 
 
+def build_cost_profile(ohlc, bucket_count=9, lookback=60):
+    rows = ohlc[-lookback:]
+    prices = [((r["high"] + r["low"] + r["close"]) / 3) for r in rows]
+    volumes = [max(0, int(r.get("volume", 0))) for r in rows]
+    current = rows[-1]["close"]
+    low = min(prices)
+    high = max(prices)
+    if high <= low:
+        low = current * 0.98
+        high = current * 1.02
+    step = (high - low) / bucket_count
+    bins = []
+    for i in range(bucket_count):
+        b_low = low + i * step
+        b_high = high if i == bucket_count - 1 else low + (i + 1) * step
+        bins.append({"low": b_low, "high": b_high, "volume": 0})
+    for price, volume in zip(prices, volumes):
+        idx = min(bucket_count - 1, max(0, int((price - low) / step)))
+        bins[idx]["volume"] += volume
+    max_volume = max((b["volume"] for b in bins), default=1) or 1
+    active_idx = max(range(len(bins)), key=lambda i: bins[i]["volume"]) if bins else 0
+    active = bins[active_idx]
+    cost_low = round_price(active["low"])
+    cost_high = round_price(active["high"])
+    if current > active["high"]:
+        position = "成本帶上方"
+        summary = "現價站在主要成交成本帶上方，籌碼結構偏多，但需觀察是否守穩。"
+    elif current < active["low"]:
+        position = "跌破成本帶"
+        summary = "現價跌破主要成交成本帶，籌碼壓力升高，反彈需先收復成本區。"
+    else:
+        position = "成本帶內"
+        summary = "現價位於主要成交成本帶內，籌碼仍在整理，需等待方向確認。"
+    return {
+        "range": price_range_text(cost_low, cost_high),
+        "position": position,
+        "current_price": current,
+        "summary": summary,
+        "note": "以近 60 日成交量加權價格分布估算，非分點實際持倉成本。",
+        "bins": [
+            {
+                "low": round_price(b["low"]),
+                "high": round_price(b["high"]),
+                "volume": b["volume"],
+                "weight": round(b["volume"] / max_volume, 2),
+                "active": i == active_idx,
+            }
+            for i, b in enumerate(bins)
+        ],
+    }
+
+
 def normalize_broker_rows(rows):
     out = []
     for r in rows or []:
@@ -1171,7 +1223,7 @@ def build_card_json(code, name, ohlc, institutional=None, brokers=None, fundamen
         "stock": {"name": name, "code": code, "title": "分析與建議", "price": last["close"], "change": change, "change_pct": change_pct, "volume": f"{last['volume']:,}", "updated_at": last["date"]},
         "ohlc": ohlc[-64:],
         "technical": {**ind, "conclusion": tech_conclusion},
-        "chips": {"institutional": chip_rows, "price": price_rows_for_chip_chart(ohlc), "brokers": broker_rows, "major": major_rows_from_price(ohlc), "conclusion": chip_conclusion},
+        "chips": {"institutional": chip_rows, "price": price_rows_for_chip_chart(ohlc), "brokers": broker_rows, "cost": build_cost_profile(ohlc), "major": major_rows_from_price(ohlc), "conclusion": chip_conclusion},
         "fundamentals": fundamentals,
         "advice": {
             "bullets": build_concise_bullets(tech_conclusion, fundamentals, above_ma20, hot, stop),

@@ -75,6 +75,13 @@ def test_build_card_json_for_4979_huaxingguang_shape():
     assert len(data["ohlc"]) >= 40
     assert len(data["chips"]["price"]) == 10
     assert data["chips"]["price"][0]["close"] == data["ohlc"][-1]["close"]
+    cost = data["chips"]["cost"]
+    assert cost["range"]
+    assert cost["position"] in {"成本帶上方", "成本帶內", "跌破成本帶"}
+    assert len(cost["bins"]) >= 6
+    assert any(bin["active"] for bin in cost["bins"])
+    assert cost["current_price"] == data["stock"]["price"]
+    assert "估算" in cost["note"]
     assert data["stock"]["updated_at"] == data["ohlc"][-1]["date"]
     assert "fundamentals" in data
     assert data["fundamentals"]["score"] == 3

@@ -14,9 +14,10 @@ def test_sample_data_has_required_sections():
 
 def test_template_contains_dashboard_regions():
     html = (ROOT / "template.html").read_text()
-    for token in ["topbar", "technical-panel", "chip-panel", "advice-panel", "disclaimer", "brokerFlow", "compositeReview", "powerGauge"]:
+    for token in ["topbar", "technical-panel", "chip-panel", "advice-panel", "disclaimer", "brokerFlow", "costPanel", "compositeReview", "powerGauge"]:
         assert token in html
     assert html.index("kdChart") < html.index("powerGauge") < html.index("chip-panel")
+    assert html.index("brokerFlow") < html.index("costPanel") < html.index("advice-panel")
     assert "path-box" not in html
     assert "pathSvg" not in html
     assert 'id="paths"' not in html

@@ -12,6 +12,8 @@ $('#maText').textContent=`MA5 ${DATA.technical.ma5}　MA20 ${DATA.technical.ma20
 $('#rsiText').textContent=`RSI ${DATA.technical.rsi}`;
 $('#macdText').textContent=`DIF ${DATA.technical.macd.dif}　DEA ${DATA.technical.macd.dea}　MACD ${DATA.technical.macd.hist}`;
 $('#kdText').textContent=`K ${DATA.technical.kd.k}　D ${DATA.technical.kd.d}`;
+let power=DATA.advice.power||{bull:50,bear:50,label:'中性',drivers:[]};
+$('#powerGauge').innerHTML=`<div class="power-head"><b>多空能量</b><strong>${power.label}</strong></div><div class="power-values"><span class="down">空方 ${power.bear}</span><span class="up">多方 ${power.bull}</span></div><div class="power-bar"><i class="bear" style="width:${power.bear}%"></i><i class="bull" style="width:${power.bull}%"></i><em></em></div><div class="power-drivers">${(power.drivers||[]).join('・')}</div>`;
 let composite=DATA.advice.composite||[
   {label:'技術面',text:DATA.technical.conclusion},
   {label:'籌碼面',text:DATA.chips.conclusion},

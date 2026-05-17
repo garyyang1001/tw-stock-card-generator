@@ -1045,6 +1045,90 @@ def build_dynamic_risks(ohlc, ind, key_levels, chip_rows, broker_rows, fundament
     return out or [{"category": "綜合", "text": "暫無明顯單一風險，仍需控管部位"}]
 
 
+def clamp(value, low, high):
+    return max(low, min(high, value))
+
+
+def build_power_gauge(ohlc, ind, chip_rows, broker_rows, fundamentals, risks):
+    last = ohlc[-1]
+    prev = ohlc[-2]
+    score = 50
+    drivers = []
+
+    ma_bull = ind["ma5"] > ind["ma20"] > ind["ma60"]
+    above_ma20 = last["close"] > ind["ma20"]
+    if ma_bull and above_ma20:
+        score += 14
+        drivers.append("技術偏多")
+    elif above_ma20:
+        score += 7
+        drivers.append("站上短中期均線")
+    elif last["close"] < ind["ma60"]:
+        score -= 10
+        drivers.append("跌破中期均線")
+
+    if ind["macd"]["hist"] > 0 and ind["kd"]["k"] > ind["kd"]["d"]:
+        score += 6
+        drivers.append("動能轉強")
+    elif ind["macd"]["hist"] < 0 and ind["kd"]["k"] < ind["kd"]["d"]:
+        score -= 6
+        drivers.append("動能轉弱")
+    if ind["rsi"] >= 75 or ind["kd"]["k"] >= 85:
+        score -= 5
+        drivers.append("短線過熱扣分")
+
+    recent_inst = (chip_rows or [])[:3]
+    inst_sum = sum(int(r.get("total", 0)) for r in recent_inst)
+    if inst_sum > 0:
+        score += 9
+        drivers.append("法人偏買")
+    elif inst_sum < 0:
+        score -= 9
+        drivers.append("法人偏賣")
+
+    avg_volume20 = sma([r["volume"] for r in ohlc[-20:]], 20)
+    volume_ratio = last["volume"] / avg_volume20 if avg_volume20 else 1
+    change_pct = (last["close"] - prev["close"]) / prev["close"] * 100 if prev["close"] else 0
+    if volume_ratio >= 1.5 and change_pct > 0:
+        score += 6
+        drivers.append("放量收紅")
+    elif volume_ratio >= 1.5 and change_pct < 0:
+        score -= 8
+        drivers.append("放量收黑")
+
+    net_top5 = broker_rows.get("summary", {}).get("net_top5", 0)
+    if net_top5 > 0:
+        score += 4
+        drivers.append("分點偏買")
+    elif net_top5 < 0:
+        score -= 4
+        drivers.append("分點偏賣")
+
+    fundamental_score = fundamentals.get("score", 3)
+    score += (fundamental_score - 3) * 5
+    if fundamental_score >= 4:
+        drivers.append("基本面加分")
+    elif fundamental_score <= 2:
+        drivers.append("基本面扣分")
+
+    score -= min(10, len(risks) * 2)
+    if risks:
+        drivers.append("風險項目扣分")
+
+    bull = int(round(clamp(score, 0, 100)))
+    if bull >= 65:
+        label = "偏多"
+    elif bull >= 56:
+        label = "中性偏多"
+    elif bull <= 35:
+        label = "偏空"
+    elif bull <= 44:
+        label = "中性偏空"
+    else:
+        label = "中性"
+    return {"bull": bull, "bear": 100 - bull, "label": label, "drivers": drivers[:3]}
+
+
 def build_card_json(code, name, ohlc, institutional=None, brokers=None, fundamentals=None):
     ind = compute_indicators(ohlc)
     last, prev = ohlc[-1], ohlc[-2]
@@ -1068,6 +1152,7 @@ def build_card_json(code, name, ohlc, institutional=None, brokers=None, fundamen
     fundamentals = build_fundamental_summary(fundamentals)
     event_summary = fundamentals.get("events", {}).get("summary", "近期事件資料不足。")
     risks = build_dynamic_risks(ohlc, ind, key_levels, chip_rows, broker_rows, fundamentals)
+    power = build_power_gauge(ohlc, ind, chip_rows, broker_rows, fundamentals, risks)
     if fundamentals["score"] >= 4 and above_ma20:
         overall = "技術趨勢與基本面資料同向偏多，但估值與事件風險仍需控管。"
     elif fundamentals["score"] <= 2:
@@ -1102,6 +1187,7 @@ def build_card_json(code, name, ohlc, institutional=None, brokers=None, fundamen
             "risks": risks,
             "risk": "；".join(f"{r['category']}：{r['text']}" for r in risks),
             "composite": composite,
+            "power": power,
             "overall": overall,
         },
         "scores": [

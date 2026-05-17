@@ -90,6 +90,11 @@ def test_build_card_json_for_4979_huaxingguang_shape():
     assert composite[0]["text"] == data["technical"]["conclusion"]
     assert composite[1]["text"] == data["chips"]["conclusion"]
     assert data["advice"]["overall"] == composite[-1]["text"]
+    power = data["advice"]["power"]
+    assert 0 <= power["bull"] <= 100
+    assert power["bear"] == 100 - power["bull"]
+    assert power["label"] in {"偏空", "中性偏空", "中性", "中性偏多", "偏多"}
+    assert 1 <= len(power["drivers"]) <= 3
     assert float(data["advice"]["levels"]["stop_loss"].replace("～", "").split()[0]) > data["stock"]["price"] * 0.45
 
 

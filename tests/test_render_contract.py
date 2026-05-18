@@ -14,12 +14,12 @@ def test_sample_data_has_required_sections():
 
 def test_template_contains_dashboard_regions():
     html = (ROOT / "template.html").read_text()
-    for token in ["topbar", "technical-panel", "chip-panel", "advice-panel", "disclaimer", "brokerFlow", "costPanel", "compositeReview", "powerGauge", "instNetChart", "instSnapshot", "chip-legend"]:
+    for token in ["topbar", "technical-panel", "chip-panel", "advice-panel", "disclaimer", "brokerFlow", "costPanel", "compositeReview", "powerGauge", "instNetChart", "instSnapshot", "chip-legend", "inst-head-legend"]:
         assert token in html
     for token in ["外資", "投信", "自營商", "合計", "黃線：收盤價"]:
         assert token in html
     assert html.index("kdChart") < html.index("powerGauge") < html.index("chip-panel")
-    assert html.index("instSnapshot") < html.index("instNetChart")
+    assert html.index("inst-head-legend") < html.index("instSnapshot") < html.index("instNetChart")
     assert html.index("brokerFlow") < html.index("costPanel") < html.index("advice-panel")
     assert 'class="level-row"' in html
     assert html.index("壓力區：") < html.index('data-bind="advice.levels.resistance"')

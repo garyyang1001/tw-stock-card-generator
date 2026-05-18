@@ -19,6 +19,7 @@ def test_template_contains_dashboard_regions():
     for token in ["外資", "投信", "自營商", "合計", "黃線：收盤價"]:
         assert token in html
     assert html.index("kdChart") < html.index("powerGauge") < html.index("chip-panel")
+    assert html.index("instSnapshot") < html.index("instNetChart")
     assert html.index("brokerFlow") < html.index("costPanel") < html.index("advice-panel")
     assert 'class="level-row"' in html
     assert html.index("壓力區：") < html.index('data-bind="advice.levels.resistance"')

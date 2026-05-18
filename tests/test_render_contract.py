@@ -37,3 +37,7 @@ def test_render_script_exists_and_accepts_data_output_args():
     assert "playwright" in js.lower()
     assert "Asia/Taipei" in js
     assert "data.stock?.name" in js
+
+def test_institutional_snapshot_shows_breakdown_first():
+    js = (ROOT / "template.js").read_text()
+    assert js.index("<ul><li>外資") < js.index("<div><b>${latest.date}")

@@ -962,7 +962,103 @@ def build_dynamic_long_view(fundamentals, above_ma20, hot):
     return [growth_line, profit_line, valuation_line]
 
 
-def build_technical_conclusion(ohlc, ind, key_levels):
+def find_wave_pivots(ohlc, window=2, limit=80):
+    rows = ohlc[-limit:]
+    if len(rows) < 5:
+        return []
+    closes = [float(r["close"]) for r in rows]
+    pivots = [{"idx": 0, "date": rows[0]["date"], "price": round(closes[0], 2), "type": "low" if closes[0] <= closes[min(1, len(closes)-1)] else "high"}]
+    for i in range(window, len(rows) - window):
+        around = closes[i-window:i+window+1]
+        price = closes[i]
+        if price == max(around) and price > max(closes[i-window:i] + closes[i+1:i+window+1]):
+            pivots.append({"idx": i, "date": rows[i]["date"], "price": round(price, 2), "type": "high"})
+        elif price == min(around) and price < min(closes[i-window:i] + closes[i+1:i+window+1]):
+            pivots.append({"idx": i, "date": rows[i]["date"], "price": round(price, 2), "type": "low"})
+    last_type = "high" if closes[-1] >= closes[-2] else "low"
+    pivots.append({"idx": len(rows)-1, "date": rows[-1]["date"], "price": round(closes[-1], 2), "type": last_type})
+
+    compressed = []
+    for p in pivots:
+        if compressed and compressed[-1]["type"] == p["type"]:
+            if (p["type"] == "high" and p["price"] >= compressed[-1]["price"]) or (p["type"] == "low" and p["price"] <= compressed[-1]["price"]):
+                compressed[-1] = p
+        else:
+            compressed.append(p)
+    return compressed[-7:]
+
+
+def build_wave_analysis(ohlc):
+    pivots = find_wave_pivots(ohlc)
+    current = round(float(ohlc[-1]["close"]), 2)
+    default = {
+        "phase": "盤整浪",
+        "wave_label": "轉折不足",
+        "confidence": 35,
+        "retracement_pct": 0,
+        "summary": "波浪輔助：轉折資料不足，暫以均線、量價與關鍵價位為主。",
+        "levels": {"last_swing_high": current, "last_swing_low": current},
+        "pivots": pivots,
+    }
+    if len(pivots) < 3:
+        return default
+
+    highs = [p for p in pivots if p["type"] == "high"]
+    lows = [p for p in pivots if p["type"] == "low"]
+    last_high = highs[-1] if highs else {"price": current, "date": ohlc[-1]["date"]}
+    last_low = lows[-1] if lows else {"price": current, "date": ohlc[-1]["date"]}
+    prev_highs = [p for p in highs if p["idx"] < last_high.get("idx", 0)]
+    prev_lows = [p for p in lows if p["idx"] < last_low.get("idx", 0)]
+    prev_high = prev_highs[-1] if prev_highs else None
+    prev_low = prev_lows[-1] if prev_lows else None
+
+    retracement_pct = 0
+    if prev_low and prev_high and prev_high["price"] > prev_low["price"]:
+        pullback_low = last_low["price"] if last_low["idx"] > prev_high["idx"] else current
+        retracement_pct = round(max(0, (prev_high["price"] - pullback_low) / (prev_high["price"] - prev_low["price"]) * 100), 1)
+
+    last_pivot = pivots[-1]
+    if last_pivot["type"] == "high" and prev_high and last_pivot["price"] > prev_high["price"]:
+        phase = "推進浪"
+        wave_label = "第 5 浪推進" if retracement_pct >= 20 and len(pivots) >= 4 else "第 3 浪延伸"
+    elif last_pivot["type"] == "low" and prev_high and current < prev_high["price"]:
+        phase = "修正浪"
+        wave_label = "ABC 修正觀察"
+    elif prev_high and prev_low and prev_low["price"] <= current <= prev_high["price"]:
+        phase = "盤整浪"
+        wave_label = "區間整理"
+    else:
+        phase = "推進浪" if current >= last_high["price"] * 0.98 else "修正浪"
+        wave_label = "推進延伸觀察" if phase == "推進浪" else "修正末端觀察"
+
+    confidence = 45
+    if len(pivots) >= 4:
+        confidence += 18
+    if 23 <= retracement_pct <= 62:
+        confidence += 15
+    if phase == "推進浪" and prev_high and current >= prev_high["price"]:
+        confidence += 10
+    confidence = int(clamp(confidence, 30, 85))
+
+    if phase == "推進浪":
+        summary = f"波浪輔助：目前偏 {wave_label}，前段回檔約 {retracement_pct:.1f}%，若守住最近低點，趨勢仍有延伸機會。"
+    elif phase == "修正浪":
+        summary = f"波浪輔助：目前偏 {wave_label}，回檔約 {retracement_pct:.1f}%，需等止跌或突破前高確認。"
+    else:
+        summary = f"波浪輔助：目前偏 {wave_label}，方向尚未明朗，宜搭配支撐壓力與量能確認。"
+
+    return {
+        "phase": phase,
+        "wave_label": wave_label,
+        "confidence": confidence,
+        "retracement_pct": retracement_pct,
+        "summary": summary,
+        "levels": {"last_swing_high": round(float(last_high["price"]), 2), "last_swing_low": round(float(last_low["price"]), 2)},
+        "pivots": pivots,
+    }
+
+
+def build_technical_conclusion(ohlc, ind, key_levels, wave=None):
     last = ohlc[-1]
     prev = ohlc[-2]
     closes = [r["close"] for r in ohlc]
@@ -1021,7 +1117,8 @@ def build_technical_conclusion(ohlc, ind, key_levels):
         position = "股價位於區間中段"
 
     volatility = "波動偏大，停損與部位需放寬控管" if atr_pct >= 5 else "波動可控"
-    return f"{trend}；{momentum}。{position}，{volatility}。"
+    wave_text = f"{wave['summary']}" if wave else "波浪輔助：尚未納入。"
+    return f"{trend}；{momentum}。{position}，{volatility}。{wave_text}"
 
 
 def add_risk(risks, category, text, priority):
@@ -1197,7 +1294,8 @@ def build_card_json(code, name, ohlc, institutional=None, brokers=None, fundamen
     hot = ind["rsi"] >= 70 or ind["kd"]["k"] >= 80
     above_ma20 = last["close"] > ind["ma20"]
     above_ma5 = last["close"] > ind["ma5"]
-    tech_conclusion = build_technical_conclusion(ohlc, ind, key_levels)
+    wave = build_wave_analysis(ohlc)
+    tech_conclusion = build_technical_conclusion(ohlc, ind, key_levels, wave)
     chip_rows = institutional or empty_chip_rows(ohlc)
     broker_rows = brokers or summarize_broker_flow([], date_label=last["date"])
     fallback = build_broker_fallback(broker_rows, chip_rows, ohlc)
@@ -1225,7 +1323,7 @@ def build_card_json(code, name, ohlc, institutional=None, brokers=None, fundamen
     return {
         "stock": {"name": name, "code": code, "title": "分析與建議", "price": last["close"], "change": change, "change_pct": change_pct, "volume": f"{last['volume']:,}", "updated_at": last["date"]},
         "ohlc": ohlc[-64:],
-        "technical": {**ind, "conclusion": tech_conclusion},
+        "technical": {**ind, "wave": wave, "conclusion": tech_conclusion},
         "chips": {"institutional": chip_rows, "price": price_rows_for_chip_chart(ohlc), "brokers": broker_rows, "cost": build_cost_profile(ohlc), "major": major_rows_from_price(ohlc), "conclusion": chip_conclusion},
         "fundamentals": fundamentals,
         "advice": {

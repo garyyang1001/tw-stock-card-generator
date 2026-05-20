@@ -13,6 +13,7 @@ from stock_data import (
     build_dynamic_long_view,
     build_technical_conclusion,
     build_dynamic_risks,
+    build_wave_analysis,
     compute_key_levels,
     fetch_official_broker_flow,
 )
@@ -34,6 +35,21 @@ def sample_price_rows(n=70):
             "min": price - 3,
             "close": price,
             "spread": 1.0,
+        })
+    return rows
+
+
+def sample_wave_ohlc():
+    closes = [52, 55, 59, 63, 68, 74, 81, 88, 96, 103, 112, 121, 132, 126, 119, 113, 108, 104, 101, 106, 112, 119, 127, 136, 146, 158]
+    rows = []
+    for i, close in enumerate(closes):
+        rows.append({
+            "date": f"05/{(i%28)+1:02d}",
+            "open": close - 1,
+            "high": close + 2,
+            "low": close - 3,
+            "close": float(close),
+            "volume": 1000 + i * 15,
         })
     return rows
 
@@ -104,6 +120,23 @@ def test_build_card_json_for_4979_huaxingguang_shape():
     assert power["label"] in {"偏空", "中性偏空", "中性", "中性偏多", "偏多"}
     assert 1 <= len(power["drivers"]) <= 3
     assert float(data["advice"]["levels"]["stop_loss"].replace("～", "").split()[0]) > data["stock"]["price"] * 0.45
+    wave = data["technical"]["wave"]
+    assert wave["phase"] in {"推進浪", "修正浪", "盤整浪"}
+    assert wave["wave_label"]
+    assert 0 <= wave["confidence"] <= 100
+    assert "波浪" in wave["summary"]
+    assert "波浪輔助" in data["technical"]["conclusion"]
+
+
+def test_build_wave_analysis_identifies_impulse_after_pullback():
+    wave = build_wave_analysis(sample_wave_ohlc())
+
+    assert wave["phase"] == "推進浪"
+    assert wave["wave_label"] in {"第 3 浪延伸", "第 5 浪推進"}
+    assert wave["retracement_pct"] >= 20
+    assert wave["levels"]["last_swing_high"] == 158.0
+    assert wave["levels"]["last_swing_low"] == 101.0
+    assert len(wave["pivots"]) >= 4
 
 
 def test_technical_conclusion_mentions_volume_and_position():

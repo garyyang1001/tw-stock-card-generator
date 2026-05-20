@@ -21,7 +21,7 @@ from stock_data import (
 LIVE_TESTS = os.environ.get("RUN_LIVE_TESTS") == "1"
 
 
-def sample_price_rows(n=70):
+def sample_price_rows(n=140):
     rows = []
     price = 100.0
     for i in range(n):
@@ -90,7 +90,7 @@ def test_build_card_json_for_4979_huaxingguang_shape():
     data = build_card_json("4979", "華星光", normalize_finmind_price_rows(sample_price_rows()))
     assert data["stock"]["code"] == "4979"
     assert data["stock"]["name"] == "華星光"
-    assert len(data["ohlc"]) >= 40
+    assert len(data["ohlc"]) == 120
     assert len(data["chips"]["price"]) == 10
     assert data["chips"]["price"][0]["close"] == data["ohlc"][-1]["close"]
     cost = data["chips"]["cost"]
@@ -127,6 +127,8 @@ def test_build_card_json_for_4979_huaxingguang_shape():
     assert 0 <= wave["confidence"] <= 100
     assert "波浪" in wave["summary"]
     assert "波浪輔助" in data["technical"]["conclusion"]
+    assert min(p["idx"] for p in wave["pivots"]) >= 0
+    assert max(p["idx"] for p in wave["pivots"]) < len(data["ohlc"])
 
 
 def test_build_wave_analysis_identifies_impulse_after_pullback():

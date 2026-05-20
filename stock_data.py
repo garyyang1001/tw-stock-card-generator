@@ -965,7 +965,7 @@ def build_dynamic_long_view(fundamentals, above_ma20, hot):
     return [growth_line, profit_line, valuation_line]
 
 
-def find_wave_pivots(ohlc, window=2, limit=80):
+def find_wave_pivots(ohlc, window=2, limit=120):
     rows = ohlc[-limit:]
     if len(rows) < 5:
         return []
@@ -991,8 +991,10 @@ def find_wave_pivots(ohlc, window=2, limit=80):
     return compressed[-7:]
 
 
-def build_wave_analysis(ohlc):
+def build_wave_analysis(ohlc, display_start=0):
     pivots = find_wave_pivots(ohlc)
+    for p in pivots:
+        p["idx"] = max(0, p["idx"] - display_start)
     current = round(float(ohlc[-1]["close"]), 2)
     default = {
         "phase": "盤整浪",
@@ -1297,7 +1299,9 @@ def build_card_json(code, name, ohlc, institutional=None, brokers=None, fundamen
     hot = ind["rsi"] >= 70 or ind["kd"]["k"] >= 80
     above_ma20 = last["close"] > ind["ma20"]
     above_ma5 = last["close"] > ind["ma5"]
-    wave = build_wave_analysis(ohlc)
+    display_ohlc = ohlc[-120:]
+    display_start = max(0, len(ohlc) - len(display_ohlc))
+    wave = build_wave_analysis(ohlc, display_start=display_start)
     tech_conclusion = build_technical_conclusion(ohlc, ind, key_levels, wave)
     chip_rows = institutional or empty_chip_rows(ohlc)
     broker_rows = brokers or summarize_broker_flow([], date_label=last["date"])
@@ -1325,7 +1329,7 @@ def build_card_json(code, name, ohlc, institutional=None, brokers=None, fundamen
     ]
     return {
         "stock": {"name": name, "code": code, "title": "分析與建議", "price": last["close"], "change": change, "change_pct": change_pct, "volume": f"{last['volume']:,}", "updated_at": last["date"]},
-        "ohlc": ohlc[-64:],
+        "ohlc": display_ohlc,
         "technical": {**ind, "wave": wave, "conclusion": tech_conclusion},
         "chips": {"institutional": chip_rows, "price": price_rows_for_chip_chart(ohlc), "brokers": broker_rows, "cost": build_cost_profile(ohlc), "major": major_rows_from_price(ohlc), "conclusion": chip_conclusion},
         "fundamentals": fundamentals,

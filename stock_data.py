@@ -991,10 +991,8 @@ def find_wave_pivots(ohlc, window=2, limit=120):
     return compressed[-7:]
 
 
-def build_wave_analysis(ohlc, display_start=0):
+def build_wave_analysis(ohlc):
     pivots = find_wave_pivots(ohlc)
-    for p in pivots:
-        p["idx"] = max(0, p["idx"] - display_start)
     current = round(float(ohlc[-1]["close"]), 2)
     default = {
         "phase": "盤整浪",
@@ -1300,8 +1298,7 @@ def build_card_json(code, name, ohlc, institutional=None, brokers=None, fundamen
     above_ma20 = last["close"] > ind["ma20"]
     above_ma5 = last["close"] > ind["ma5"]
     display_ohlc = ohlc[-120:]
-    display_start = max(0, len(ohlc) - len(display_ohlc))
-    wave = build_wave_analysis(ohlc, display_start=display_start)
+    wave = build_wave_analysis(ohlc)
     tech_conclusion = build_technical_conclusion(ohlc, ind, key_levels, wave)
     chip_rows = institutional or empty_chip_rows(ohlc)
     broker_rows = brokers or summarize_broker_flow([], date_label=last["date"])

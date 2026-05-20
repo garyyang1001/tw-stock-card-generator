@@ -41,3 +41,15 @@ def test_render_script_exists_and_accepts_data_output_args():
 def test_institutional_snapshot_shows_breakdown_first():
     js = (ROOT / "template.js").read_text()
     assert js.index("<ul><li>外資") < js.index("<div><b>${latest.date}")
+
+
+def test_k_chart_draws_wave_overlay_from_pivots():
+    js = (ROOT / "template.js").read_text()
+    css = (ROOT / "style.css").read_text()
+    assert "DATA.technical.wave" in js
+    assert "wave.pivots" in js
+    assert "wave-line" in js
+    assert "wave-dot" in js
+    assert "wave-label" in js
+    assert ".wave-line" in css
+    assert ".wave-dot" in css

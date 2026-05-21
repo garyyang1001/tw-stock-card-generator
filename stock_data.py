@@ -1327,7 +1327,7 @@ def build_card_json(code, name, ohlc, institutional=None, brokers=None, fundamen
         {"label": "操作結論", "text": overall},
     ]
     return {
-        "stock": {"name": name, "code": code, "title": "分析與建議", "price": last["close"], "change": change, "change_pct": change_pct, "volume": f"{last['volume']:,}", "updated_at": last["date"]},
+        "stock": {"name": name, "code": code, "title": "分析與建議", "price": last["close"], "change": change, "change_pct": change_pct, "volume": f"{last['volume']:,}", "updated_at": last.get("full_date", last["date"]).replace("-", "/")},
         "ohlc": display_ohlc,
         "technical": {**ind, "wave": wave, "conclusion": tech_conclusion},
         "chips": {"institutional": chip_rows, "price": price_rows_for_chip_chart(ohlc), "brokers": broker_rows, "cost": build_cost_profile(ohlc), "major": major_rows_from_price(ohlc), "conclusion": chip_conclusion},

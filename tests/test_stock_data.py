@@ -100,7 +100,7 @@ def test_build_card_json_for_4979_huaxingguang_shape():
     assert any(bin["active"] for bin in cost["bins"])
     assert cost["current_price"] == data["stock"]["price"]
     assert "估算" in cost["note"]
-    assert data["stock"]["updated_at"] == data["ohlc"][-1]["date"]
+    assert data["stock"]["updated_at"] == data["ohlc"][-1]["full_date"].replace("-", "/")
     assert "fundamentals" in data
     assert data["fundamentals"]["score"] == 3
     assert len(data["advice"]["risks"]) <= 5

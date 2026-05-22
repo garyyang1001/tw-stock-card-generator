@@ -129,6 +129,8 @@ def test_build_card_json_for_4979_huaxingguang_shape():
     assert "波浪輔助" in data["technical"]["conclusion"]
     assert min(p["idx"] for p in wave["pivots"]) >= 0
     assert max(p["idx"] for p in wave["pivots"]) < len(data["ohlc"])
+    assert wave["pivots"][0]["idx"] == 0
+    assert wave["pivots"][-1]["idx"] == len(data["ohlc"]) - 1
     for pivot in wave["pivots"]:
         assert data["ohlc"][pivot["idx"]]["date"] == pivot["date"]
 
@@ -142,6 +144,8 @@ def test_build_wave_analysis_identifies_impulse_after_pullback():
     assert wave["levels"]["last_swing_high"] == 158.0
     assert wave["levels"]["last_swing_low"] == 101.0
     assert len(wave["pivots"]) >= 4
+    assert wave["pivots"][0]["idx"] == 0
+    assert wave["pivots"][-1]["idx"] == len(sample_wave_ohlc()) - 1
 
 
 def test_technical_conclusion_mentions_volume_and_position():

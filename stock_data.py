@@ -975,7 +975,9 @@ def find_wave_pivots(ohlc, window=2, limit=120):
     if len(rows) < 5:
         return []
     closes = [float(r["close"]) for r in rows]
-    pivots = [{"idx": 0, "date": rows[0]["date"], "price": round(closes[0], 2), "type": "low" if closes[0] <= closes[min(1, len(closes)-1)] else "high"}]
+    first_pivot = {"idx": 0, "date": rows[0]["date"], "price": round(closes[0], 2), "type": "low" if closes[0] <= closes[min(1, len(closes)-1)] else "high"}
+    last_pivot = {"idx": len(rows)-1, "date": rows[-1]["date"], "price": round(closes[-1], 2), "type": "high" if closes[-1] >= closes[-2] else "low"}
+    pivots = []
     for i in range(window, len(rows) - window):
         around = closes[i-window:i+window+1]
         price = closes[i]
@@ -983,8 +985,6 @@ def find_wave_pivots(ohlc, window=2, limit=120):
             pivots.append({"idx": i, "date": rows[i]["date"], "price": round(price, 2), "type": "high"})
         elif price == min(around) and price < min(closes[i-window:i] + closes[i+1:i+window+1]):
             pivots.append({"idx": i, "date": rows[i]["date"], "price": round(price, 2), "type": "low"})
-    last_type = "high" if closes[-1] >= closes[-2] else "low"
-    pivots.append({"idx": len(rows)-1, "date": rows[-1]["date"], "price": round(closes[-1], 2), "type": last_type})
 
     compressed = []
     for p in pivots:
@@ -993,7 +993,7 @@ def find_wave_pivots(ohlc, window=2, limit=120):
                 compressed[-1] = p
         else:
             compressed.append(p)
-    return compressed[-7:]
+    return [first_pivot] + compressed[-5:] + [last_pivot]
 
 
 def build_wave_analysis(ohlc):

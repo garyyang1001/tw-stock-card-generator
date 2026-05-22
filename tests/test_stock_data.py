@@ -16,6 +16,8 @@ from stock_data import (
     build_wave_analysis,
     compute_key_levels,
     fetch_official_broker_flow,
+    build_fundamental_summary,
+    parse_google_finance_html,
 )
 
 LIVE_TESTS = os.environ.get("RUN_LIVE_TESTS") == "1"
@@ -284,6 +286,53 @@ def test_build_card_json_adds_fallback_when_broker_flow_requires_token():
     assert any(item["label"] == "量價結構" for item in fallback["items"])
     assert "法人近3日" in data["chips"]["conclusion"]
     assert "量價" in data["chips"]["conclusion"]
+
+
+def test_parse_google_finance_html_extracts_auxiliary_metrics():
+    html = """
+    <html><head><title>Sample Corp (1234) Stock Price & News - Google Finance</title></head>
+    <body>
+    <div class="KxsRFb"><div class="SwQK7">P/E ratio</div><div class="dO6ijd">29.87</div></div>
+    <div class="KxsRFb"><div class="SwQK7">EPS</div><div class="dO6ijd">NT$75.50</div></div>
+    <div class="KxsRFb"><div class="SwQK7">52-wk high</div><div class="dO6ijd">NT$2,345.00</div></div>
+    <div class="KxsRFb"><div class="SwQK7">52-wk low</div><div class="dO6ijd">NT$946.00</div></div>
+    <span class="OspXqd">Sector</span><span class="oJCxTc">Semiconductor</span>
+    </body></html>
+    """
+    parsed = parse_google_finance_html(html, url="https://www.google.com/finance/quote/1234:TPE")
+
+    assert parsed["status"] == "ok"
+    assert parsed["source"] == "Google Finance"
+    assert parsed["derived"]["per"] == 29.87
+    assert parsed["derived"]["eps"] == 75.5
+    assert parsed["derived"]["high_52w"] == 2345
+    assert parsed["derived"]["low_52w"] == 946
+    assert parsed["derived"]["sector"] == "Semiconductor"
+    assert "Google Finance" in parsed["summary"]
+
+
+def test_fundamental_summary_uses_google_finance_as_fallback_only():
+    summary = build_fundamental_summary({
+        "industry": {"category": "資料不足", "market": "資料不足", "summary": "尚未取得產業分類資料。"},
+        "revenue": {"status": "no_data", "summary": "尚未取得月營收資料。"},
+        "valuation": {"status": "no_data", "summary": "尚未取得本益比資料。"},
+        "financial": {"status": "no_data", "summary": "尚未取得財報資料。"},
+        "events": {"status": "no_data", "items": [], "summary": "尚未取得事件資料。"},
+        "google_finance": {
+            "status": "ok",
+            "summary": "Google Finance 輔助：PER 29.87、EPS 75.5、產業 Semiconductor",
+            "metrics": {"P/E ratio": "29.87", "EPS": "NT$75.50"},
+            "about": {"Sector": "Semiconductor"},
+            "news": [],
+            "derived": {"per": 29.87, "eps": 75.5, "sector": "Semiconductor"},
+        },
+    })
+
+    assert summary["valuation"]["source"] == "Google Finance"
+    assert summary["valuation"]["per"] == 29.87
+    assert summary["financial"]["source"] == "Google Finance"
+    assert summary["industry"]["category"] == "Semiconductor"
+    assert "Google Finance 輔助" in summary["summary"]
 
 
 @pytest.mark.skipif(not LIVE_TESTS, reason="requires live TPEx OpenAPI data")

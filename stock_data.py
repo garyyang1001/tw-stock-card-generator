@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import argparse, json, math, os, statistics, urllib.request, urllib.parse
+import argparse, html as html_lib, json, math, os, re, statistics, urllib.request, urllib.parse
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -850,8 +850,130 @@ def empty_fundamentals():
         "valuation": {"status": "no_data", "summary": "尚未取得本益比 / 股價淨值比資料。"},
         "financial": {"status": "no_data", "summary": "尚未取得最新財報指標。"},
         "events": {"status": "no_data", "items": [], "summary": "尚未取得新聞事件資料。"},
+        "google_finance": {"status": "unavailable", "summary": "Google Finance 輔助資料未取得。", "metrics": {}, "about": {}, "news": []},
         "summary": "基本面資料不足，綜合判斷仍以技術面與籌碼面為主。",
         "score": 3,
+    }
+
+
+def clean_google_text(value):
+    text = re.sub(r"<[^>]+>", "", value or "")
+    return html_lib.unescape(text).replace("\xa0", " ").strip()
+
+
+def metric_number(value):
+    if value in (None, ""):
+        return None
+    text = str(value).replace(",", "").replace("NT$", "").replace("$", "").replace("%", "").strip()
+    m = re.search(r"-?\d+(?:\.\d+)?", text)
+    return float(m.group(0)) if m else None
+
+
+def parse_google_finance_html(html, url=""):
+    title_match = re.search(r"<title>(.*?)</title>", html or "", re.S)
+    title = clean_google_text(title_match.group(1)) if title_match else ""
+    if not title or title == "Google Finance":
+        return {
+            "status": "no_data",
+            "source": "Google Finance",
+            "url": url,
+            "summary": "Google Finance 未提供此股票摘要頁。",
+            "metrics": {},
+            "about": {},
+            "news": [],
+        }
+
+    metric_pairs = re.findall(
+        r'<div class="SwQK7">(.*?)</div><div class="dO6ijd">(.*?)</div>',
+        html or "",
+        re.S,
+    )
+    metrics = {clean_google_text(k): clean_google_text(v) for k, v in metric_pairs if clean_google_text(k)}
+    about_pairs = re.findall(
+        r'<span class="OspXqd">(.*?)</span><span class="oJCxTc">(.*?)</span>',
+        html or "",
+        re.S,
+    )
+    about = {clean_google_text(k): clean_google_text(v) for k, v in about_pairs if clean_google_text(k)}
+
+    company = title.split(" Stock Price", 1)[0].strip()
+    company_terms = [w.lower() for w in re.findall(r"[A-Za-z]{4,}", company)]
+    raw_articles = re.findall(r'\["(https?://[^"]+)","([^"]{12,180})","([^"]{2,80})"', html or "")
+    news = []
+    seen = set()
+    for link, headline, source in raw_articles:
+        headline = clean_google_text(headline)
+        if headline in seen:
+            continue
+        haystack = headline.lower()
+        if company_terms and not any(term in haystack for term in company_terms):
+            continue
+        seen.add(headline)
+        news.append({"title": headline, "source": clean_google_text(source), "url": html_lib.unescape(link)})
+        if len(news) >= 3:
+            break
+
+    per = metric_number(metrics.get("P/E ratio"))
+    eps = metric_number(metrics.get("EPS"))
+    high_52w = metric_number(metrics.get("52-wk high"))
+    low_52w = metric_number(metrics.get("52-wk low"))
+    dividend_yield = metric_number(metrics.get("Dividend"))
+    highlights = []
+    if per is not None:
+        highlights.append(f"PER {per:g}")
+    if eps is not None:
+        highlights.append(f"EPS {eps:g}")
+    if high_52w is not None and low_52w is not None:
+        highlights.append(f"52週區間 {low_52w:g}~{high_52w:g}")
+    if dividend_yield is not None:
+        highlights.append(f"殖利率 {dividend_yield:g}%")
+    sector = about.get("Sector")
+    if sector:
+        highlights.append(f"產業 {sector}")
+    summary = "Google Finance 輔助：" + ("、".join(highlights) if highlights else "已取得摘要頁，但可用指標有限。")
+    return {
+        "status": "ok",
+        "source": "Google Finance",
+        "url": url,
+        "title": title,
+        "company": company,
+        "summary": summary,
+        "metrics": metrics,
+        "about": about,
+        "news": news,
+        "derived": {
+            "per": per,
+            "eps": eps,
+            "high_52w": high_52w,
+            "low_52w": low_52w,
+            "dividend_yield": dividend_yield,
+            "sector": sector,
+        },
+    }
+
+
+def fetch_google_finance_snapshot(code):
+    for exchange in ("TPE", "TWO"):
+        url = f"https://www.google.com/finance/quote/{code}:{exchange}?hl=en"
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=20) as r:
+                html = r.read().decode("utf-8", "ignore")
+        except Exception as exc:
+            last_error = str(exc)
+            continue
+        parsed = parse_google_finance_html(html, url=url)
+        if parsed.get("status") == "ok":
+            parsed["exchange"] = exchange
+            return parsed
+    return {
+        "status": "unavailable",
+        "source": "Google Finance",
+        "url": f"https://www.google.com/finance/quote/{code}:TPE",
+        "summary": f"Google Finance 輔助資料未取得。{last_error if 'last_error' in locals() else ''}".strip(),
+        "metrics": {},
+        "about": {},
+        "news": [],
     }
 
 
@@ -862,6 +984,36 @@ def build_fundamental_summary(fundamentals):
     financial = f.get("financial", {})
     industry = f.get("industry", {})
     events = f.get("events", {})
+    google = f.get("google_finance", {})
+    google_derived = google.get("derived", {}) if google.get("status") == "ok" else {}
+    if industry.get("category") in {None, "", "資料不足"} and google_derived.get("sector"):
+        industry.update({
+            "category": google_derived["sector"],
+            "market": "Google Finance",
+            "summary": f"產業分類：{google_derived['sector']}（Google Finance 輔助）。",
+        })
+    if valuation.get("status") != "ok" and google_derived.get("per") is not None:
+        valuation.update({
+            "status": "ok",
+            "source": "Google Finance",
+            "per": google_derived.get("per"),
+            "dividend_yield": google_derived.get("dividend_yield"),
+            "summary": f"估值參考：Google Finance PER {google_derived.get('per'):g}。",
+        })
+    if financial.get("status") != "ok" and google_derived.get("eps") is not None:
+        financial.update({
+            "status": "partial",
+            "source": "Google Finance",
+            "eps": google_derived.get("eps"),
+            "summary": f"財報參考：Google Finance EPS {google_derived.get('eps'):g}。",
+        })
+    if events.get("status") != "ok" and google.get("news"):
+        events.update({
+            "status": "ok",
+            "source": "Google Finance",
+            "items": google["news"],
+            "summary": "Google Finance 新聞：" + google["news"][0]["title"][:42],
+        })
     score = 3
     yoy = revenue.get("yoy_pct")
     if yoy is not None:
@@ -881,6 +1033,7 @@ def build_fundamental_summary(fundamentals):
         industry.get("summary"),
         revenue.get("summary"),
         valuation.get("summary"),
+        google.get("summary") if google.get("status") == "ok" else None,
         financial.get("summary"),
         events.get("summary"),
     ]
@@ -1537,6 +1690,7 @@ def fetch_fundamentals(code):
     valuation = fetch_finmind_valuation(code, (date.today() - timedelta(days=45)).isoformat())
     financial = fetch_finmind_financials(code, (date.today() - timedelta(days=560)).isoformat())
     news = fetch_finmind_news(code, (date.today() - timedelta(days=30)).isoformat())
+    google = fetch_google_finance_snapshot(code)
     f = empty_fundamentals()
     if info:
         f["industry"] = info
@@ -1548,6 +1702,8 @@ def fetch_fundamentals(code):
         f["financial"] = financial
     if news:
         f["events"] = news
+    if google:
+        f["google_finance"] = google
     return build_fundamental_summary(f)
 
 

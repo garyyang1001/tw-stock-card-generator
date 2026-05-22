@@ -1047,6 +1047,59 @@ def concise_signal(text, limit=28):
     return text[:limit] + ("..." if len(text) > limit else "")
 
 
+def compact_sentence(text, limit=76):
+    text = re.sub(r"\s+", "", (text or "").replace("，", "，").strip())
+    return text[:limit] + ("..." if len(text) > limit else "")
+
+
+def build_composite_technical_summary(ohlc, ind, key_levels, wave):
+    last = ohlc[-1]
+    resistance = price_range_text(*key_levels["resistance"])
+    support = price_range_text(*key_levels["support"])
+    trend = "均線偏多" if last["close"] > ind["ma20"] else "仍在整理"
+    momentum = "指標過熱" if ind["rsi"] >= 70 or ind["kd"]["k"] >= 80 else "動能中性"
+    wave_text = f"{wave.get('phase', '波浪')}觀察"
+    return compact_sentence(f"{trend}，{momentum}；壓力 {resistance}，支撐 {support}，{wave_text}需量價確認。")
+
+
+def build_composite_chip_summary(chip_rows, broker_rows):
+    recent = (chip_rows or [])[:3]
+    inst_sum = sum(int(r.get("total", 0)) for r in recent)
+    inst_text = "法人近3日偏買" if inst_sum > 0 else "法人近3日偏賣" if inst_sum < 0 else "法人近3日中性"
+    broker_status = broker_rows.get("status")
+    net_top5 = broker_rows.get("summary", {}).get("net_top5", 0)
+    if broker_rows.get("fallback"):
+        broker_text = "分點以替代資料觀察"
+    elif broker_status in {"token_required", "no_data"}:
+        broker_text = "分點資料不足"
+    elif net_top5 > 0:
+        broker_text = "分點買盤略占優"
+    elif net_top5 < 0:
+        broker_text = "分點賣壓略占優"
+    else:
+        broker_text = "分點方向待確認"
+    return compact_sentence(f"{inst_text} {sign_text(inst_sum)} 張；{broker_text}，量價與主力成本同步觀察。")
+
+
+def build_composite_fundamental_summary(fundamentals):
+    revenue = fundamentals.get("revenue", {})
+    valuation = fundamentals.get("valuation", {})
+    financial = fundamentals.get("financial", {})
+    google = fundamentals.get("google_finance", {})
+    score = fundamentals.get("score", 3)
+    tone = "偏強" if score >= 4 else "偏弱" if score <= 2 else "中性"
+    parts = [f"基本面{tone}"]
+    if revenue.get("yoy_pct") is not None:
+        parts.append(f"營收年增{pct_text(revenue.get('yoy_pct'))}")
+    if valuation.get("per") is not None:
+        parts.append(f"PER {valuation.get('per'):.2f}")
+    if financial.get("operating_margin") is not None:
+        parts.append(f"營益率{pct_text(financial.get('operating_margin'))}")
+    if google.get("status") == "ok":
+        parts.append("Google輔助已納入")
+    return compact_sentence("；".join(parts) + "，估值與事件仍需追蹤。")
+
+
 def build_concise_bullets(tech_conclusion, fundamentals, above_ma20, hot, stop):
     revenue = fundamentals.get("revenue", {})
     valuation = fundamentals.get("valuation", {})
@@ -1479,9 +1532,9 @@ def build_card_json(code, name, ohlc, institutional=None, brokers=None, fundamen
     else:
         overall = "技術面整理，基本面需持續追蹤，短線宜保守觀察。"
     composite = [
-        {"label": "技術面", "text": tech_conclusion},
-        {"label": "籌碼面", "text": chip_conclusion},
-        {"label": "基本面", "text": fundamentals.get("summary", "基本面資料不足，需搭配技術與籌碼觀察。")},
+        {"label": "技術面", "text": build_composite_technical_summary(ohlc, ind, key_levels, wave)},
+        {"label": "籌碼面", "text": build_composite_chip_summary(chip_rows, broker_rows)},
+        {"label": "基本面", "text": build_composite_fundamental_summary(fundamentals)},
         {"label": "操作結論", "text": overall},
     ]
     return {

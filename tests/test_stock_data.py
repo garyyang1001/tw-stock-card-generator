@@ -114,8 +114,11 @@ def test_build_card_json_for_4979_huaxingguang_shape():
     assert any(token in data["technical"]["conclusion"] for token in ["支撐區", "壓力區", "區間"])
     composite = data["advice"]["composite"]
     assert [row["label"] for row in composite] == ["技術面", "籌碼面", "基本面", "操作結論"]
-    assert composite[0]["text"] == data["technical"]["conclusion"]
-    assert composite[1]["text"] == data["chips"]["conclusion"]
+    assert composite[0]["text"] != data["technical"]["conclusion"]
+    assert composite[1]["text"] != data["chips"]["conclusion"]
+    for row in composite[:3]:
+        assert len(row["text"]) <= 80
+        assert "\n" not in row["text"]
     assert data["advice"]["overall"] == composite[-1]["text"]
     power = data["advice"]["power"]
     assert 0 <= power["bull"] <= 100

@@ -1,23 +1,123 @@
 #!/usr/bin/env python3
-import argparse, json, math, statistics, urllib.request, urllib.parse
+import argparse, html as html_lib, json, math, os, re, statistics, urllib.request, urllib.parse
 from datetime import date, timedelta
 from pathlib import Path
 
-NAME_MAP = {
+STOCK_NAME_BY_CODE = {
+    "1216": "統一",
+    "1906": "寶隆",
+    "2303": "聯電",
+    "2308": "台達電",
+    "2313": "華通",
+    "2317": "鴻海",
+    "2328": "廣宇",
+    "2330": "台積電",
+    "2382": "廣達",
+    "2383": "台光電",
+    "2406": "國碩",
+    "2409": "友達",
+    "2454": "聯發科",
+    "2464": "盟立",
+    "2492": "華新科",
+    "2603": "長榮",
+    "2606": "裕民",
+    "2609": "陽明",
+    "2610": "華航",
+    "2615": "萬海",
+    "2618": "長榮航",
+    "2646": "星宇航空",
+    "2881": "富邦金",
+    "2882": "國泰金",
+    "2884": "玉山金",
+    "2891": "中信金",
+    "2892": "第一金",
+    "3234": "光環",
+    "3374": "精材",
+    "3481": "群創",
+    "3707": "漢磊",
+    "4167": "松瑞藥",
+    "4722": "國精化",
+    "4967": "十銓",
     "4979": "華星光",
+    "5434": "崇越",
+    "6245": "立端",
+    "6442": "光聖",
+    "6763": "綠界科技",
+    "7769": "鴻勁",
+    "8064": "東捷",
+    "8291": "尚茂",
+}
+
+STOCK_ALIAS_TO_CODE = {
+    "統一": "1216",
+    "台積": "2330",
+    "台積電": "2330",
+    "TSMC": "2330",
+    "聯電": "2303",
+    "台達電": "2308",
+    "華通": "2313",
+    "鴻海": "2317",
+    "廣宇": "2328",
+    "廣達": "2382",
+    "台光電": "2383",
+    "國碩": "2406",
+    "國碩科技": "2406",
+    "友達": "2409",
+    "聯發科": "2454",
+    "盟立": "2464",
+    "華新科": "2492",
+    "長榮": "2603",
+    "裕民": "2606",
+    "陽明": "2609",
+    "華航": "2610",
+    "萬海": "2615",
+    "長榮航": "2618",
+    "長榮航空": "2618",
+    "星宇": "2646",
+    "星宇航空": "2646",
+    "富邦金": "2881",
+    "國泰金": "2882",
+    "玉山金": "2884",
+    "中信金": "2891",
+    "第一金": "2892",
+    "光環": "3234",
+    "精材": "3374",
+    "精材科技": "3374",
+    "群創": "3481",
+    "漢磊": "3707",
+    "漢磊科技": "3707",
+    "松瑞藥": "4167",
+    "國精化": "4722",
+    "十銓": "4967",
+    "十詮": "4967",
     "華星光": "4979",
     "華新光": "4979",  # common typo / user shorthand
+    "崇越": "5434",
+    "崇越科技": "5434",
+    "立端": "6245",
+    "立端科技": "6245",
+    "光聖": "6442",
+    "綠界科技": "6763",
+    "綠界": "6763",
+    "鴻勁": "7769",
+    "鴻勁精密": "7769",
+    "寶隆": "1906",
+    "東捷": "8064",
+    "尚茂": "8291",
 }
 
 
 def resolve_stock(query: str):
-    q = str(query).strip()
-    if q in NAME_MAP and NAME_MAP[q].isdigit():
-        return NAME_MAP[q], "華星光"
-    if q in NAME_MAP:
-        return q, NAME_MAP.get(q, q)
+    q = str(query).strip().replace(" ", "")
+    q_upper = q.upper()
+    if q in STOCK_ALIAS_TO_CODE:
+        code = STOCK_ALIAS_TO_CODE[q]
+        return code, STOCK_NAME_BY_CODE.get(code, q)
+    if q_upper in STOCK_ALIAS_TO_CODE:
+        code = STOCK_ALIAS_TO_CODE[q_upper]
+        return code, STOCK_NAME_BY_CODE.get(code, q)
     if q.isdigit():
-        return q, q
+        return q, STOCK_NAME_BY_CODE.get(q, q)
     return q, q
 
 
@@ -25,12 +125,36 @@ def normalize_finmind_price_rows(rows):
     out = []
     for r in rows:
         out.append({
+            "full_date": r.get("date", ""),
             "date": r["date"][5:].replace("-", "/") if len(r.get("date", "")) >= 10 else r.get("date", ""),
             "open": round(float(r["open"]), 2),
             "high": round(float(r.get("max", r.get("high"))), 2),
             "low": round(float(r.get("min", r.get("low"))), 2),
             "close": round(float(r["close"]), 2),
             "volume": int(round(float(r.get("Trading_Volume", r.get("volume", 0))) / 1000)),
+        })
+    return out
+
+
+def parse_twse_number(value):
+    text = str(value or "").replace(",", "").replace("--", "").strip()
+    return float(text) if text else 0.0
+
+
+def normalize_twse_price_rows(rows):
+    out = []
+    for r in rows or []:
+        roc = str(r[0])
+        yy, mm, dd = [int(x) for x in roc.split("/")]
+        full_date = f"{yy + 1911:04d}-{mm:02d}-{dd:02d}"
+        out.append({
+            "full_date": full_date,
+            "date": f"{mm:02d}/{dd:02d}",
+            "open": round(parse_twse_number(r[3]), 2),
+            "high": round(parse_twse_number(r[4]), 2),
+            "low": round(parse_twse_number(r[5]), 2),
+            "close": round(parse_twse_number(r[6]), 2),
+            "volume": int(round(parse_twse_number(r[1]) / 1000)),
         })
     return out
 
@@ -49,43 +173,162 @@ def ema(vals, n):
     return e
 
 
-def rsi(vals, n=14):
+def true_ranges(ohlc):
+    ranges = []
+    prev_close = None
+    for row in ohlc:
+        if prev_close is None:
+            ranges.append(row["high"] - row["low"])
+        else:
+            ranges.append(max(row["high"] - row["low"], abs(row["high"] - prev_close), abs(row["low"] - prev_close)))
+        prev_close = row["close"]
+    return ranges
+
+
+def atr(ohlc, n=14):
+    ranges = true_ranges(ohlc)
+    if not ranges:
+        return 0.0
+    return sma(ranges, n)
+
+
+def ema_series(vals, n):
+    if len(vals) < n:
+        return [None] * len(vals)
+    out = [None] * (n - 1)
+    e = sum(vals[:n]) / n
+    out.append(e)
+    k = 2 / (n + 1)
+    for v in vals[n:]:
+        e = v * k + e * (1 - k)
+        out.append(e)
+    return out
+
+
+def ema_series_sparse(vals, n):
+    out = [None] * len(vals)
+    valid = []
+    e = None
+    k = 2 / (n + 1)
+    for i, v in enumerate(vals):
+        if v is None:
+            continue
+        valid.append(v)
+        if len(valid) == n:
+            e = sum(valid) / n
+            out[i] = e
+        elif len(valid) > n:
+            e = v * k + e * (1 - k)
+            out[i] = e
+    return out
+
+
+def rsi_series(vals, n=14):
+    out = [None] * len(vals)
     if len(vals) <= n:
-        return 50.0
-    gains, losses = [], []
-    for a, b in zip(vals[-n-1:-1], vals[-n:]):
+        return out
+    gains = []
+    losses = []
+    for a, b in zip(vals[:n], vals[1:n + 1]):
         diff = b - a
         gains.append(max(diff, 0))
         losses.append(max(-diff, 0))
-    ag = sum(gains) / n
-    al = sum(losses) / n
-    if al == 0:
-        return 100.0
-    rs = ag / al
-    return 100 - (100 / (1 + rs))
+    avg_gain = sum(gains) / n
+    avg_loss = sum(losses) / n
+    out[n] = 100.0 if avg_loss == 0 else 100 - (100 / (1 + avg_gain / avg_loss))
+    for i in range(n + 1, len(vals)):
+        diff = vals[i] - vals[i - 1]
+        gain = max(diff, 0)
+        loss = max(-diff, 0)
+        avg_gain = (avg_gain * (n - 1) + gain) / n
+        avg_loss = (avg_loss * (n - 1) + loss) / n
+        out[i] = 100.0 if avg_loss == 0 else 100 - (100 / (1 + avg_gain / avg_loss))
+    return out
+
+
+def rsi(vals, n=14):
+    series = rsi_series(vals, n)
+    latest = next((v for v in reversed(series) if v is not None), None)
+    return latest if latest is not None else 50.0
+
+
+def macd_series(vals):
+    ema12 = ema_series(vals, 12)
+    ema26 = ema_series(vals, 26)
+    dif = [(a - b) if a is not None and b is not None else None for a, b in zip(ema12, ema26)]
+    dea = ema_series_sparse(dif, 9)
+    hist = [(d - e) * 2 if d is not None and e is not None else None for d, e in zip(dif, dea)]
+    return dif, dea, hist
+
+
+def latest_value(vals, fallback=0.0):
+    return next((v for v in reversed(vals) if v is not None), fallback)
+
+
+def round_series(rows, keys):
+    out = []
+    for row in rows:
+        rounded = {"date": row["date"]}
+        for key in keys:
+            value = row.get(key)
+            rounded[key] = None if value is None else round(value, 2)
+        out.append(rounded)
+    return out
 
 
 def macd(vals):
-    dif = ema(vals, 12) - ema(vals, 26)
-    # approximate DEA by calculating DIF series
-    difs = []
-    for i in range(26, len(vals)+1):
-        s = vals[:i]
-        difs.append(ema(s, 12) - ema(s, 26))
-    dea = ema(difs or [dif], 9)
-    hist = (dif - dea) * 2
-    return {"dif": round(dif, 2), "dea": round(dea, 2), "hist": round(hist, 2)}
+    dif, dea, hist = macd_series(vals)
+    return {
+        "dif": round(latest_value(dif), 2),
+        "dea": round(latest_value(dea), 2),
+        "hist": round(latest_value(hist), 2),
+    }
+
+
+def kd_series(ohlc, n=9):
+    out = []
+    k = 50.0
+    d = 50.0
+    for i, row in enumerate(ohlc):
+        if i < n - 1:
+            out.append({"date": row["date"], "k": None, "d": None})
+            continue
+        rows = ohlc[i - n + 1:i + 1]
+        high = max(r["high"] for r in rows)
+        low = min(r["low"] for r in rows)
+        rsv = 50.0 if high == low else (row["close"] - low) / (high - low) * 100
+        k = (2 / 3) * k + (1 / 3) * rsv
+        d = (2 / 3) * d + (1 / 3) * k
+        out.append({"date": row["date"], "k": k, "d": d})
+    return out
 
 
 def kd(ohlc, n=9):
-    rows = ohlc[-n:]
-    high = max(r["high"] for r in rows)
-    low = min(r["low"] for r in rows)
-    close = ohlc[-1]["close"]
-    rsv = 50 if high == low else (close - low) / (high - low) * 100
-    k = (2/3) * 50 + (1/3) * rsv
-    d = (2/3) * 50 + (1/3) * k
-    return {"k": round(k, 2), "d": round(d, 2)}
+    series = kd_series(ohlc, n)
+    latest = next((r for r in reversed(series) if r["k"] is not None and r["d"] is not None), None)
+    if latest is None:
+        return {"k": 50.0, "d": 50.0}
+    return {"k": round(latest["k"], 2), "d": round(latest["d"], 2)}
+
+
+def indicator_series(ohlc, limit=42):
+    closes = [r["close"] for r in ohlc]
+    rsi_vals = rsi_series(closes)
+    dif_vals, dea_vals, hist_vals = macd_series(closes)
+    kd_vals = kd_series(ohlc)
+    rows = []
+    for i, row in enumerate(ohlc):
+        kd_row = kd_vals[i]
+        rows.append({
+            "date": row["date"],
+            "rsi": rsi_vals[i],
+            "macd_dif": dif_vals[i],
+            "macd_dea": dea_vals[i],
+            "macd_hist": hist_vals[i],
+            "kd_k": kd_row["k"],
+            "kd_d": kd_row["d"],
+        })
+    return round_series(rows[-limit:], ["rsi", "macd_dif", "macd_dea", "macd_hist", "kd_k", "kd_d"])
 
 
 def compute_indicators(ohlc):
@@ -99,6 +342,8 @@ def compute_indicators(ohlc):
         "rsi": round(rsi(closes), 2),
         "macd": macd(closes),
         "kd": kd(ohlc),
+        "atr14": round(atr(ohlc, 14), 2),
+        "series": indicator_series(ohlc),
     }
 
 
@@ -106,6 +351,188 @@ def level_text(a, b=None):
     if b is None:
         return f"{a:.1f}".rstrip('0').rstrip('.')
     return f"{a:.0f}～{b:.0f}"
+
+
+def round_price(value):
+    if value >= 1000:
+        return round(value / 5) * 5
+    if value >= 100:
+        return round(value * 2) / 2
+    return round(value, 1)
+
+
+def price_range_text(low, high):
+    low = round_price(low)
+    high = round_price(high)
+    if abs(high - low) < 0.001:
+        return level_text(low)
+    return level_text(low, high)
+
+
+def round_step(price):
+    if price >= 1000:
+        return 100
+    if price >= 500:
+        return 50
+    if price >= 100:
+        return 10
+    if price >= 50:
+        return 5
+    return 1
+
+
+def add_level(candidates, price, label, weight=1.0):
+    if price and price > 0:
+        candidates.append({"price": float(price), "label": label, "weight": float(weight)})
+
+
+def volume_profile_levels(ohlc, bin_count=18, top_n=5):
+    if not ohlc:
+        return []
+    low = min(r["low"] for r in ohlc)
+    high = max(r["high"] for r in ohlc)
+    if high <= low:
+        return []
+    width = (high - low) / bin_count
+    bins = [{"low": low + i * width, "high": low + (i + 1) * width, "volume": 0.0} for i in range(bin_count)]
+    for row in ohlc:
+        start = max(0, min(bin_count - 1, int((row["low"] - low) / width)))
+        end = max(0, min(bin_count - 1, int((row["high"] - low) / width)))
+        touched = max(1, end - start + 1)
+        for i in range(start, end + 1):
+            bins[i]["volume"] += row["volume"] / touched
+    max_volume = max((b["volume"] for b in bins), default=0) or 1
+    levels = []
+    for b in sorted(bins, key=lambda x: x["volume"], reverse=True)[:top_n]:
+        center = (b["low"] + b["high"]) / 2
+        levels.append({"price": center, "weight": 1.4 + (b["volume"] / max_volume) * 1.4})
+    return levels
+
+
+def cluster_levels(candidates, tolerance_pct=0.018):
+    clusters = []
+    for c in sorted(candidates, key=lambda x: x["price"]):
+        if clusters and abs(c["price"] - clusters[-1]["price"]) / clusters[-1]["price"] <= tolerance_pct:
+            cluster = clusters[-1]
+            total = cluster["weight"] + c["weight"]
+            cluster["price"] = (cluster["price"] * cluster["weight"] + c["price"] * c["weight"]) / total
+            cluster["weight"] = total
+            if c["label"] not in cluster["labels"]:
+                cluster["labels"].append(c["label"])
+        else:
+            clusters.append({"price": c["price"], "weight": c["weight"], "labels": [c["label"]]})
+    return clusters
+
+
+def nearby_range(levels, current, side, fallback_low, fallback_high, atr_value=0):
+    if side == "above":
+        pool = [x for x in levels if x["price"] >= current * 1.01] or [x for x in levels if x["price"] >= current * 0.998]
+        pool = sorted(pool, key=lambda x: (abs(x["price"] - current), -x["weight"]))[:2]
+    else:
+        pool = [x for x in levels if x["price"] <= current * 0.99] or [x for x in levels if x["price"] <= current * 1.002]
+        pool = sorted(pool, key=lambda x: (abs(x["price"] - current), -x["weight"]))[:2]
+    if not pool:
+        return fallback_low, fallback_high, []
+    prices = [x["price"] for x in pool]
+    labels = []
+    for item in pool:
+        labels.extend(item["labels"])
+    low, high = min(prices), max(prices)
+    atr_pad = atr_value * 0.35 if atr_value else 0
+    pad = max(current * 0.006, (high - low) * 0.25, atr_pad)
+    if side == "above":
+        return max(low - pad, current * 1.003), high + pad, sorted(set(labels))
+    if side == "below":
+        return low - pad, min(high + pad, current * 0.997), sorted(set(labels))
+    return low - pad, high + pad, sorted(set(labels))
+
+
+def compute_key_levels(ohlc, ind):
+    current = ohlc[-1]["close"]
+    recent = ohlc[-64:]
+    candidates = []
+    atr_value = ind.get("atr14", 0)
+    tolerance_pct = min(0.035, max(0.014, (atr_value / current * 0.6) if current else 0.018))
+
+    add_level(candidates, ind["ma20"], "MA20", 1.4)
+    add_level(candidates, ind["ma60"], "MA60", 1.8)
+    add_level(candidates, ind["high"], "近60日高點", 1.6)
+    add_level(candidates, ind["low"], "近60日低點", 1.2)
+
+    avg_volume = statistics.mean([r["volume"] for r in recent]) or 1
+    for row in sorted(recent, key=lambda r: r["volume"], reverse=True)[:6]:
+        weight = min(2.0, max(1.0, row["volume"] / avg_volume))
+        add_level(candidates, row["close"], "大量成交區", weight)
+        add_level(candidates, (row["high"] + row["low"]) / 2, "大量成交區", weight * 0.8)
+
+    for level in volume_profile_levels(recent):
+        add_level(candidates, level["price"], "成交量分布成本區", level["weight"])
+
+    for prev, row in zip(recent, recent[1:]):
+        if row["low"] > prev["high"] * 1.01:
+            add_level(candidates, prev["high"], "跳空缺口", 1.6)
+            add_level(candidates, row["low"], "跳空缺口", 1.6)
+        if row["high"] < prev["low"] * 0.99:
+            add_level(candidates, row["high"], "跳空缺口", 1.6)
+            add_level(candidates, prev["low"], "跳空缺口", 1.6)
+        if row["close"] >= prev["close"] * 1.095:
+            add_level(candidates, row["high"], "漲停高點", 1.7)
+
+    for i in range(0, max(0, len(recent) - 5)):
+        window = recent[i:i + 6]
+        highs = [r["high"] for r in window]
+        lows = [r["low"] for r in window]
+        center = statistics.mean([r["close"] for r in window])
+        if center and (max(highs) - min(lows)) / center <= 0.055:
+            add_level(candidates, center, "前波平台", 1.3)
+
+    step = round_step(current)
+    lower_round = math.floor(current / step) * step
+    upper_round = math.ceil(current / step) * step
+    add_level(candidates, lower_round, "整數關卡", 1.2)
+    add_level(candidates, upper_round, "整數關卡", 1.2)
+    add_level(candidates, lower_round - step, "整數關卡", 0.9)
+    add_level(candidates, upper_round + step, "整數關卡", 0.9)
+
+    levels = cluster_levels(candidates, tolerance_pct=tolerance_pct)
+    resistance_low, resistance_high, resistance_labels = nearby_range(levels, current, "above", ind["high"], ind["high"] * 1.04, atr_value)
+    support_low, support_high, support_labels = nearby_range(levels, current, "below", ind["ma20"] * 0.98, ind["ma20"] * 1.02, atr_value)
+    deeper = [x for x in levels if x["price"] < support_low - max(current * 0.01, atr_value * 0.4)]
+    if deeper:
+        strong_pool = sorted(deeper, key=lambda x: (abs(x["price"] - support_low), -x["weight"]))[:2]
+        prices = [x["price"] for x in strong_pool]
+        strong_low, strong_high = min(prices), max(prices)
+        strong_labels = sorted(set(label for x in strong_pool for label in x["labels"]))
+    else:
+        strong_low, strong_high = ind["ma60"] * 0.98, ind["ma60"] * 1.02
+        strong_labels = ["MA60"]
+    stop = min(strong_low - max(atr_value * 0.6, strong_low * 0.025), support_low - max(atr_value * 1.2, support_low * 0.06))
+
+    return {
+        "resistance": (resistance_low, resistance_high),
+        "support": (support_low, support_high),
+        "strong_support": (strong_low, strong_high),
+        "stop_loss": stop,
+        "factors": {
+            "resistance": "、".join(resistance_labels[:3]) or "近60日高點",
+            "support": "、".join(support_labels[:3]) or "MA20",
+            "strong_support": "、".join(strong_labels[:3]) or "MA60",
+            "volatility": f"ATR14 {level_text(atr_value)}",
+        },
+    }
+
+
+def pct_text(value):
+    if value is None:
+        return "資料不足"
+    sign = "+" if value > 0 else ""
+    return f"{sign}{value:.1f}%"
+
+
+def money_billion(value):
+    if value is None:
+        return "資料不足"
+    return f"{value / 100000000:.1f} 億"
 
 
 def empty_chip_rows(ohlc):
@@ -126,6 +553,62 @@ def major_rows_from_price(ohlc):
     return rows
 
 
+def price_rows_for_chip_chart(ohlc, limit=10):
+    return [{"date": r["date"], "close": r["close"]} for r in ohlc[-limit:][::-1]]
+
+
+def build_cost_profile(ohlc, bucket_count=9, lookback=60):
+    rows = ohlc[-lookback:]
+    prices = [((r["high"] + r["low"] + r["close"]) / 3) for r in rows]
+    volumes = [max(0, int(r.get("volume", 0))) for r in rows]
+    current = rows[-1]["close"]
+    low = min(prices)
+    high = max(prices)
+    if high <= low:
+        low = current * 0.98
+        high = current * 1.02
+    step = (high - low) / bucket_count
+    bins = []
+    for i in range(bucket_count):
+        b_low = low + i * step
+        b_high = high if i == bucket_count - 1 else low + (i + 1) * step
+        bins.append({"low": b_low, "high": b_high, "volume": 0})
+    for price, volume in zip(prices, volumes):
+        idx = min(bucket_count - 1, max(0, int((price - low) / step)))
+        bins[idx]["volume"] += volume
+    max_volume = max((b["volume"] for b in bins), default=1) or 1
+    active_idx = max(range(len(bins)), key=lambda i: bins[i]["volume"]) if bins else 0
+    active = bins[active_idx]
+    cost_low = round_price(active["low"])
+    cost_high = round_price(active["high"])
+    if current > active["high"]:
+        position = "成本帶上方"
+        summary = "現價站在主要成交成本帶上方，籌碼結構偏多，但需觀察是否守穩。"
+    elif current < active["low"]:
+        position = "跌破成本帶"
+        summary = "現價跌破主要成交成本帶，籌碼壓力升高，反彈需先收復成本區。"
+    else:
+        position = "成本帶內"
+        summary = "現價位於主要成交成本帶內，籌碼仍在整理，需等待方向確認。"
+    return {
+        "range": price_range_text(cost_low, cost_high),
+        "position": position,
+        "current_price": current,
+        "summary": summary,
+        "note": "以近 60 日成交量加權價格分布估算，非分點實際持倉成本。",
+        "bins": [
+            {
+                "low": round_price(b["low"]),
+                "high": round_price(b["high"]),
+                "volume": b["volume"],
+                "weight": round(b["volume"] / max_volume, 2),
+                "active": i == active_idx,
+            }
+            for i, b in enumerate(bins)
+        ],
+    }
+
+
 def normalize_broker_rows(rows):
     out = []
     for r in rows or []:
@@ -141,6 +624,21 @@ def normalize_broker_rows(rows):
             "net": buy - sell,
         })
     return out
+
+
+def normalize_finmind_broker_rows(rows):
+    by_broker = {}
+    for r in rows or []:
+        trader = str(r.get("securities_trader") or r.get("broker") or "未知券商")
+        trader_id = str(r.get("securities_trader_id") or "").strip()
+        broker = f"{trader}-{trader_id}" if trader_id else trader
+        date_raw = str(r.get("date", ""))
+        date_label = date_raw[5:].replace("-", "/") if len(date_raw) >= 10 else date_raw
+        item = by_broker.setdefault(broker, {"date": date_label, "broker": broker, "buy": 0, "sell": 0, "net": 0})
+        item["buy"] += int(round(float(r.get("buy", 0)) / 1000))
+        item["sell"] += int(round(float(r.get("sell", 0)) / 1000))
+        item["net"] = item["buy"] - item["sell"]
+    return list(by_broker.values())
 
 
 def summarize_broker_flow(rows, date_label=None, top_n=5):
@@ -205,7 +703,7 @@ def fetch_official_broker_flow(code, top_n=5):
             "top_buy": [],
             "top_sell": [],
             "summary": {"buy_concentration": 0, "sell_concentration": 0, "net_top5": 0},
-            "warning": "官方 OpenAPI 目前未提供此股票的熱門券商進出資料；未使用假資料補值。",
+            "warning": "TPEx 公開 OpenAPI 目前未提供此股票的熱門券商進出資料。上市股分點資料需使用 TWSE 買賣日報表或 FinMind sponsor 分點資料；本程式未使用假資料補值。",
             "source": source,
             "status": "no_data",
             "stock_name": None,
@@ -218,12 +716,145 @@ def fetch_official_broker_flow(code, top_n=5):
     return summary
 
 
-def broker_conclusion(brokers, institutional_rows=None):
+def fetch_finmind_broker_flow(code, trade_date, token=None, top_n=5):
+    source = "FinMind / TaiwanStockTradingDailyReport"
+    token = token or os.environ.get("FINMIND_TOKEN")
+    if not token:
+        return {
+            "date": trade_date[5:].replace("-", "/") if trade_date else "未設定日期",
+            "top_buy": [],
+            "top_sell": [],
+            "summary": {"buy_concentration": 0, "sell_concentration": 0, "net_top5": 0},
+            "warning": "上市股券商分點資料需要 FinMind sponsor token。請設定 FINMIND_TOKEN 後重新產生卡片。",
+            "source": source,
+            "status": "token_required",
+            "stock_name": None,
+        }
+    if not trade_date:
+        return {
+            "date": "未設定日期",
+            "top_buy": [],
+            "top_sell": [],
+            "summary": {"buy_concentration": 0, "sell_concentration": 0, "net_top5": 0},
+            "warning": "缺少最近收盤日期，無法查詢 FinMind 分點資料。",
+            "source": source,
+            "status": "no_date",
+            "stock_name": None,
+        }
+    params = urllib.parse.urlencode({"dataset": "TaiwanStockTradingDailyReport", "data_id": code, "start_date": trade_date})
+    req = urllib.request.Request(
+        "https://api.finmindtrade.com/api/v4/data?" + params,
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=40) as r:
+            data = json.load(r)
+    except Exception as exc:
+        return {
+            "date": trade_date[5:].replace("-", "/"),
+            "top_buy": [],
+            "top_sell": [],
+            "summary": {"buy_concentration": 0, "sell_concentration": 0, "net_top5": 0},
+            "warning": f"FinMind 分點資料讀取失敗：{exc}",
+            "source": source,
+            "status": "error",
+            "stock_name": None,
+        }
+    if data.get("status") != 200 or not data.get("data"):
+        return {
+            "date": trade_date[5:].replace("-", "/"),
+            "top_buy": [],
+            "top_sell": [],
+            "summary": {"buy_concentration": 0, "sell_concentration": 0, "net_top5": 0},
+            "warning": f"FinMind 未回傳分點資料：{data.get('msg') or data.get('status')}",
+            "source": source,
+            "status": "no_data",
+            "stock_name": None,
+        }
+    rows = normalize_finmind_broker_rows(data["data"])
+    summary = summarize_broker_flow(rows, date_label=trade_date[5:].replace("-", "/"), top_n=top_n)
+    summary["source"] = source
+    summary["status"] = "ok"
+    summary["stock_name"] = None
+    summary["warning"] += " 資料來源：FinMind TaiwanStockTradingDailyReport。"
+    return summary
+
+
+def fetch_broker_flow(code, trade_date=None, token=None):
+    official = fetch_official_broker_flow(code)
+    if official.get("status") == "ok":
+        return official
+    finmind = fetch_finmind_broker_flow(code, trade_date, token=token)
+    if finmind.get("status") == "ok":
+        return finmind
+    if finmind.get("status") in {"token_required", "error"}:
+        return finmind
+    return official
+
+
+def sign_text(value):
+    return f"+{value}" if value > 0 else str(value)
+
+
+def build_broker_fallback(brokers, institutional_rows=None, ohlc=None):
+    if brokers.get("status") not in {"token_required", "no_data"}:
+        return None
+    if brokers.get("top_buy") or brokers.get("top_sell"):
+        return None
+
+    recent_inst = (institutional_rows or [])[:3]
+    inst_total = sum(int(r.get("total", 0)) for r in recent_inst)
+    if inst_total > 0:
+        inst_tone = "up"
+        inst_text = "法人近3日偏買，分點缺口先用法人方向輔助判讀。"
+    elif inst_total < 0:
+        inst_tone = "down"
+        inst_text = "法人近3日偏賣，缺少分點時需提高追價風險意識。"
+    else:
+        inst_tone = "neutral"
+        inst_text = "法人近3日方向不明，籌碼面先視為中性。"
+
+    volume_ratio = 1
+    change_pct = 0
+    volume_tone = "neutral"
+    volume_text = "量價結構中性，暫以支撐壓力與法人方向交叉觀察。"
+    if ohlc and len(ohlc) >= 2:
+        last, prev = ohlc[-1], ohlc[-2]
+        avg_volume20 = sma([r["volume"] for r in ohlc[-20:]], 20)
+        volume_ratio = last["volume"] / avg_volume20 if avg_volume20 else 1
+        change_pct = (last["close"] - prev["close"]) / prev["close"] * 100 if prev["close"] else 0
+        if volume_ratio >= 1.5 and change_pct > 0:
+            volume_tone = "up"
+            volume_text = "放量收紅，短線承接力優先觀察是否延續。"
+        elif volume_ratio >= 1.5 and change_pct < 0:
+            volume_tone = "down"
+            volume_text = "放量收黑，需防籌碼換手失敗或賣壓放大。"
+        elif volume_ratio < 0.7:
+            volume_text = "量縮整理，方向仍需等待放量確認。"
+
+    return {
+        "status": "proxy",
+        "title": "分點需授權資料源",
+        "note": "未使用假分點資料；改以法人買賣超與量價結構輔助判讀。",
+        "items": [
+            {"label": "法人近3日", "value": f"{sign_text(inst_total)} 張", "tone": inst_tone, "text": inst_text},
+            {"label": "量價結構", "value": f"{volume_ratio:.1f}x / {change_pct:+.1f}%", "tone": volume_tone, "text": volume_text},
+        ],
+    }
+
+
+def broker_conclusion(brokers, institutional_rows=None, ohlc=None):
     top_buy = brokers.get("top_buy") or []
     top_sell = brokers.get("top_sell") or []
     if not top_buy and not top_sell:
+        fallback = brokers.get("fallback") or build_broker_fallback(brokers, institutional_rows, ohlc)
+        if fallback:
+            signals = "；".join(f"{item['label']} {item['value']}，{item['text']}" for item in fallback.get("items", []))
+            return f"{fallback['title']}，不以假資料補分點；改看 {signals}"
         if brokers.get("status") == "no_data":
             return "官方 OpenAPI 目前沒有此股票的券商進出排行；本圖不使用假資料補齊分點訊號。"
+        if brokers.get("status") == "token_required":
+            return "上市股券商分點資料需要額外授權資料源；目前未設定 FinMind sponsor token，因此不顯示分點排行。"
         return "法人資料已納入近 10 日買賣超；分點資料尚未接入，短線主力行為需待資料源補齊後判斷。"
     bsum = brokers.get("summary", {})
     buy_c = bsum.get("buy_concentration", 0)
@@ -240,59 +871,779 @@ def broker_conclusion(brokers, institutional_rows=None):
     return "分點買賣較分散，籌碼訊號不明顯；應回到法人趨勢與量價結構綜合判斷。"
 
 
-def build_card_json(code, name, ohlc, institutional=None, brokers=None):
+def empty_fundamentals():
+    return {
+        "industry": {"category": "資料不足", "market": "資料不足", "summary": "尚未取得產業分類資料。"},
+        "revenue": {"status": "no_data", "summary": "尚未取得月營收資料。"},
+        "valuation": {"status": "no_data", "summary": "尚未取得本益比 / 股價淨值比資料。"},
+        "financial": {"status": "no_data", "summary": "尚未取得最新財報指標。"},
+        "events": {"status": "no_data", "items": [], "summary": "尚未取得新聞事件資料。"},
+        "google_finance": {"status": "unavailable", "summary": "Google Finance 輔助資料未取得。", "metrics": {}, "about": {}, "news": []},
+        "summary": "基本面資料不足，綜合判斷仍以技術面與籌碼面為主。",
+        "score": 3,
+    }
+
+
+def clean_google_text(value):
+    text = re.sub(r"<[^>]+>", "", value or "")
+    return html_lib.unescape(text).replace("\xa0", " ").strip()
+
+
+def metric_number(value):
+    if value in (None, ""):
+        return None
+    text = str(value).replace(",", "").replace("NT$", "").replace("$", "").replace("%", "").strip()
+    m = re.search(r"-?\d+(?:\.\d+)?", text)
+    return float(m.group(0)) if m else None
+
+
+def parse_google_finance_html(html, url=""):
+    title_match = re.search(r"<title>(.*?)</title>", html or "", re.S)
+    title = clean_google_text(title_match.group(1)) if title_match else ""
+    if not title or title == "Google Finance":
+        return {
+            "status": "no_data",
+            "source": "Google Finance",
+            "url": url,
+            "summary": "Google Finance 未提供此股票摘要頁。",
+            "metrics": {},
+            "about": {},
+            "news": [],
+        }
+
+    metric_pairs = re.findall(
+        r'<div class="SwQK7">(.*?)</div><div class="dO6ijd">(.*?)</div>',
+        html or "",
+        re.S,
+    )
+    metrics = {clean_google_text(k): clean_google_text(v) for k, v in metric_pairs if clean_google_text(k)}
+    about_pairs = re.findall(
+        r'<span class="OspXqd">(.*?)</span><span class="oJCxTc">(.*?)</span>',
+        html or "",
+        re.S,
+    )
+    about = {clean_google_text(k): clean_google_text(v) for k, v in about_pairs if clean_google_text(k)}
+
+    company = title.split(" Stock Price", 1)[0].strip()
+    company_terms = [w.lower() for w in re.findall(r"[A-Za-z]{4,}", company)]
+    raw_articles = re.findall(r'\["(https?://[^"]+)","([^"]{12,180})","([^"]{2,80})"', html or "")
+    news = []
+    seen = set()
+    for link, headline, source in raw_articles:
+        headline = clean_google_text(headline)
+        if headline in seen:
+            continue
+        haystack = headline.lower()
+        if company_terms and not any(term in haystack for term in company_terms):
+            continue
+        seen.add(headline)
+        news.append({"title": headline, "source": clean_google_text(source), "url": html_lib.unescape(link)})
+        if len(news) >= 3:
+            break
+
+    per = metric_number(metrics.get("P/E ratio"))
+    eps = metric_number(metrics.get("EPS"))
+    high_52w = metric_number(metrics.get("52-wk high"))
+    low_52w = metric_number(metrics.get("52-wk low"))
+    dividend_yield = metric_number(metrics.get("Dividend"))
+    highlights = []
+    if per is not None:
+        highlights.append(f"PER {per:g}")
+    if eps is not None:
+        highlights.append(f"EPS {eps:g}")
+    if high_52w is not None and low_52w is not None:
+        highlights.append(f"52週區間 {low_52w:g}~{high_52w:g}")
+    if dividend_yield is not None:
+        highlights.append(f"殖利率 {dividend_yield:g}%")
+    sector = about.get("Sector")
+    if sector:
+        highlights.append(f"產業 {sector}")
+    summary = "Google Finance 輔助：" + ("、".join(highlights) if highlights else "已取得摘要頁，但可用指標有限。")
+    return {
+        "status": "ok",
+        "source": "Google Finance",
+        "url": url,
+        "title": title,
+        "company": company,
+        "summary": summary,
+        "metrics": metrics,
+        "about": about,
+        "news": news,
+        "derived": {
+            "per": per,
+            "eps": eps,
+            "high_52w": high_52w,
+            "low_52w": low_52w,
+            "dividend_yield": dividend_yield,
+            "sector": sector,
+        },
+    }
+
+
+def fetch_google_finance_snapshot(code):
+    for exchange in ("TPE", "TWO"):
+        url = f"https://www.google.com/finance/quote/{code}:{exchange}?hl=en"
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=20) as r:
+                html = r.read().decode("utf-8", "ignore")
+        except Exception as exc:
+            last_error = str(exc)
+            continue
+        parsed = parse_google_finance_html(html, url=url)
+        if parsed.get("status") == "ok":
+            parsed["exchange"] = exchange
+            return parsed
+    return {
+        "status": "unavailable",
+        "source": "Google Finance",
+        "url": f"https://www.google.com/finance/quote/{code}:TPE",
+        "summary": f"Google Finance 輔助資料未取得。{last_error if 'last_error' in locals() else ''}".strip(),
+        "metrics": {},
+        "about": {},
+        "news": [],
+    }
+
+
+def build_fundamental_summary(fundamentals):
+    f = fundamentals or empty_fundamentals()
+    revenue = f.get("revenue", {})
+    valuation = f.get("valuation", {})
+    financial = f.get("financial", {})
+    industry = f.get("industry", {})
+    events = f.get("events", {})
+    google = f.get("google_finance", {})
+    google_derived = google.get("derived", {}) if google.get("status") == "ok" else {}
+    if industry.get("category") in {None, "", "資料不足"} and google_derived.get("sector"):
+        industry.update({
+            "category": google_derived["sector"],
+            "market": "Google Finance",
+            "summary": f"產業分類：{google_derived['sector']}（Google Finance 輔助）。",
+        })
+    if valuation.get("status") != "ok" and google_derived.get("per") is not None:
+        valuation.update({
+            "status": "ok",
+            "source": "Google Finance",
+            "per": google_derived.get("per"),
+            "dividend_yield": google_derived.get("dividend_yield"),
+            "summary": f"估值參考：Google Finance PER {google_derived.get('per'):g}。",
+        })
+    if financial.get("status") != "ok" and google_derived.get("eps") is not None:
+        financial.update({
+            "status": "partial",
+            "source": "Google Finance",
+            "eps": google_derived.get("eps"),
+            "summary": f"財報參考：Google Finance EPS {google_derived.get('eps'):g}。",
+        })
+    if events.get("status") != "ok" and google.get("news"):
+        events.update({
+            "status": "ok",
+            "source": "Google Finance",
+            "items": google["news"],
+            "summary": "Google Finance 新聞：" + google["news"][0]["title"][:42],
+        })
+    score = 3
+    yoy = revenue.get("yoy_pct")
+    if yoy is not None:
+        score += 1 if yoy > 10 else 0
+        score -= 1 if yoy < -5 else 0
+    gross = financial.get("gross_margin")
+    opm = financial.get("operating_margin")
+    if gross is not None and gross >= 35:
+        score += 1
+    if opm is not None and opm >= 20:
+        score += 1
+    per = valuation.get("per")
+    if per is not None and per >= 35:
+        score -= 1
+    score = max(1, min(5, score))
+    highlights = [
+        industry.get("summary"),
+        revenue.get("summary"),
+        valuation.get("summary"),
+        google.get("summary") if google.get("status") == "ok" else None,
+        financial.get("summary"),
+        events.get("summary"),
+    ]
+    f["summary"] = " ".join(x for x in highlights if x)
+    f["score"] = score
+    return f
+
+
+def concise_signal(text, limit=28):
+    text = (text or "").replace("。", "").strip()
+    return text[:limit] + ("..." if len(text) > limit else "")
+
+
+def compact_sentence(text, limit=76):
+    text = re.sub(r"\s+", "", (text or "").replace("，", "，").strip())
+    return text[:limit] + ("..." if len(text) > limit else "")
+
+
+def build_composite_technical_summary(ohlc, ind, key_levels, wave):
+    last = ohlc[-1]
+    resistance = price_range_text(*key_levels["resistance"])
+    support = price_range_text(*key_levels["support"])
+    trend = "均線偏多" if last["close"] > ind["ma20"] else "仍在整理"
+    momentum = "指標過熱" if ind["rsi"] >= 70 or ind["kd"]["k"] >= 80 else "動能中性"
+    wave_text = f"{wave.get('phase', '波浪')}觀察"
+    return compact_sentence(f"{trend}，{momentum}；壓力 {resistance}，支撐 {support}，{wave_text}需量價確認。")
+
+
+def build_composite_chip_summary(chip_rows, broker_rows):
+    recent = (chip_rows or [])[:3]
+    inst_sum = sum(int(r.get("total", 0)) for r in recent)
+    inst_text = "法人近3日偏買" if inst_sum > 0 else "法人近3日偏賣" if inst_sum < 0 else "法人近3日中性"
+    broker_status = broker_rows.get("status")
+    net_top5 = broker_rows.get("summary", {}).get("net_top5", 0)
+    if broker_rows.get("fallback"):
+        broker_text = "分點以替代資料觀察"
+    elif broker_status in {"token_required", "no_data"}:
+        broker_text = "分點資料不足"
+    elif net_top5 > 0:
+        broker_text = "分點買盤略占優"
+    elif net_top5 < 0:
+        broker_text = "分點賣壓略占優"
+    else:
+        broker_text = "分點方向待確認"
+    return compact_sentence(f"{inst_text} {sign_text(inst_sum)} 張；{broker_text}，量價與主力成本同步觀察。")
+
+
+def build_composite_fundamental_summary(fundamentals):
+    revenue = fundamentals.get("revenue", {})
+    valuation = fundamentals.get("valuation", {})
+    financial = fundamentals.get("financial", {})
+    google = fundamentals.get("google_finance", {})
+    score = fundamentals.get("score", 3)
+    tone = "偏強" if score >= 4 else "偏弱" if score <= 2 else "中性"
+    parts = [f"基本面{tone}"]
+    if revenue.get("yoy_pct") is not None:
+        parts.append(f"營收年增{pct_text(revenue.get('yoy_pct'))}")
+    if valuation.get("per") is not None:
+        parts.append(f"PER {valuation.get('per'):.2f}")
+    if financial.get("operating_margin") is not None:
+        parts.append(f"營益率{pct_text(financial.get('operating_margin'))}")
+    if google.get("status") == "ok":
+        parts.append("Google輔助已納入")
+    return compact_sentence("；".join(parts) + "，估值與事件仍需追蹤。")
+
+
+def build_concise_bullets(tech_conclusion, fundamentals, above_ma20, hot, stop):
+    revenue = fundamentals.get("revenue", {})
+    valuation = fundamentals.get("valuation", {})
+    financial = fundamentals.get("financial", {})
+    events = fundamentals.get("events", {})
+    yoy = revenue.get("yoy_pct")
+    per = valuation.get("per")
+    opm = financial.get("operating_margin")
+    bullets = [
+        "短線偏強但追價需控管風險" if above_ma20 else "短線仍在整理，等待重新轉強",
+        "技術指標偏熱，適合等拉回" if hot else "技術指標未明顯過熱",
+    ]
+    if yoy is not None:
+        bullets.append(f"月營收年增 {pct_text(yoy)}，基本面動能{'偏強' if yoy > 10 else '普通' if yoy >= 0 else '轉弱'}")
+    else:
+        bullets.append("月營收資料不足，基本面保守看待")
+    if per is not None:
+        bullets.append(f"PER {per:.2f}，估值{'偏高' if per >= 35 else '尚可但需同業比較'}")
+    else:
+        bullets.append("估值資料不足，避免單靠技術面判斷")
+    if opm is not None and opm >= 20:
+        bullets.append(f"營益率 {pct_text(opm)}，獲利結構具支撐")
+    elif events.get("status") == "ok":
+        bullets.append("近期事件納入參考，但不作單一買賣依據")
+    else:
+        bullets.append("事件資料不足，留意突發消息")
+    bullets.append(f"跌破 {level_text(stop)} 應檢討部位")
+    return bullets[:5]
+
+
+def build_dynamic_long_view(fundamentals, above_ma20, hot):
+    revenue = fundamentals.get("revenue", {})
+    valuation = fundamentals.get("valuation", {})
+    financial = fundamentals.get("financial", {})
+    events = fundamentals.get("events", {})
+    yoy = revenue.get("yoy_pct")
+    opm = financial.get("operating_margin")
+    gross = financial.get("gross_margin")
+    per = valuation.get("per")
+    score = fundamentals.get("score", 3)
+
+    if yoy is None:
+        growth_line = "營收資料不足，中長線需搭配財報確認。"
+    elif yoy >= 30:
+        growth_line = "營收成長強勁，中長線動能偏正向。"
+    elif yoy >= 10:
+        growth_line = "營收維持成長，中長線具支撐。"
+    elif yoy >= 0:
+        growth_line = "營收小幅成長，中長線偏中性。"
+    else:
+        growth_line = "營收年增轉弱，中長線保守。"
+
+    if opm is not None and opm >= 20:
+        profit_line = f"營益率 {pct_text(opm)}，獲利結構具支撐。"
+    elif gross is not None and gross >= 25:
+        profit_line = f"毛利率 {pct_text(gross)}，需觀察營益率。"
+    elif financial.get("status") == "ok":
+        profit_line = "獲利率不突出，評價需保守。"
+    else:
+        profit_line = "財報資料不足，題材支撐需保守。"
+
+    if per is not None and per >= 45:
+        valuation_line = "估值偏高，拉高後修正風險較大。"
+    elif per is not None and per >= 30:
+        valuation_line = "估值已有期待，宜等回檔或財報確認。"
+    elif per is not None and score >= 4:
+        valuation_line = "估值與基本面尚可，回測支撐可觀察。"
+    elif above_ma20 and not hot:
+        valuation_line = "技術趨勢尚可，可分批觀察。"
+    else:
+        valuation_line = "技術或估值未配合，宜降低部位。"
+
+    if events.get("status") != "ok":
+        valuation_line += " 事件資料不足，留意公告。"
+
+    return [growth_line, profit_line, valuation_line]
+
+
+def find_wave_pivots(ohlc, window=2, limit=120):
+    rows = ohlc[-limit:]
+    if len(rows) < 5:
+        return []
+    closes = [float(r["close"]) for r in rows]
+    first_pivot = {"idx": 0, "date": rows[0]["date"], "price": round(closes[0], 2), "type": "low" if closes[0] <= closes[min(1, len(closes)-1)] else "high"}
+    last_pivot = {"idx": len(rows)-1, "date": rows[-1]["date"], "price": round(closes[-1], 2), "type": "high" if closes[-1] >= closes[-2] else "low"}
+    pivots = []
+    for i in range(window, len(rows) - window):
+        around = closes[i-window:i+window+1]
+        price = closes[i]
+        if price == max(around) and price > max(closes[i-window:i] + closes[i+1:i+window+1]):
+            pivots.append({"idx": i, "date": rows[i]["date"], "price": round(price, 2), "type": "high"})
+        elif price == min(around) and price < min(closes[i-window:i] + closes[i+1:i+window+1]):
+            pivots.append({"idx": i, "date": rows[i]["date"], "price": round(price, 2), "type": "low"})
+
+    compressed = []
+    for p in pivots:
+        if compressed and compressed[-1]["type"] == p["type"]:
+            if (p["type"] == "high" and p["price"] >= compressed[-1]["price"]) or (p["type"] == "low" and p["price"] <= compressed[-1]["price"]):
+                compressed[-1] = p
+        else:
+            compressed.append(p)
+    return [first_pivot] + compressed[-5:] + [last_pivot]
+
+
+def build_wave_analysis(ohlc):
+    pivots = find_wave_pivots(ohlc)
+    current = round(float(ohlc[-1]["close"]), 2)
+    default = {
+        "phase": "盤整浪",
+        "wave_label": "轉折不足",
+        "confidence": 35,
+        "retracement_pct": 0,
+        "summary": "波浪輔助：轉折資料不足，暫以均線、量價與關鍵價位為主。",
+        "levels": {"last_swing_high": current, "last_swing_low": current},
+        "pivots": pivots,
+    }
+    if len(pivots) < 3:
+        return default
+
+    highs = [p for p in pivots if p["type"] == "high"]
+    lows = [p for p in pivots if p["type"] == "low"]
+    last_high = highs[-1] if highs else {"price": current, "date": ohlc[-1]["date"]}
+    last_low = lows[-1] if lows else {"price": current, "date": ohlc[-1]["date"]}
+    prev_highs = [p for p in highs if p["idx"] < last_high.get("idx", 0)]
+    prev_lows = [p for p in lows if p["idx"] < last_low.get("idx", 0)]
+    prev_high = prev_highs[-1] if prev_highs else None
+    prev_low = prev_lows[-1] if prev_lows else None
+
+    retracement_pct = 0
+    if prev_low and prev_high and prev_high["price"] > prev_low["price"]:
+        pullback_low = last_low["price"] if last_low["idx"] > prev_high["idx"] else current
+        retracement_pct = round(max(0, (prev_high["price"] - pullback_low) / (prev_high["price"] - prev_low["price"]) * 100), 1)
+
+    last_pivot = pivots[-1]
+    if last_pivot["type"] == "high" and prev_high and last_pivot["price"] > prev_high["price"]:
+        phase = "推進浪"
+        wave_label = "第 5 浪推進" if retracement_pct >= 20 and len(pivots) >= 4 else "第 3 浪延伸"
+    elif last_pivot["type"] == "low" and prev_high and current < prev_high["price"]:
+        phase = "修正浪"
+        wave_label = "ABC 修正觀察"
+    elif prev_high and prev_low and prev_low["price"] <= current <= prev_high["price"]:
+        phase = "盤整浪"
+        wave_label = "區間整理"
+    else:
+        phase = "推進浪" if current >= last_high["price"] * 0.98 else "修正浪"
+        wave_label = "推進延伸觀察" if phase == "推進浪" else "修正末端觀察"
+
+    confidence = 45
+    if len(pivots) >= 4:
+        confidence += 18
+    if 23 <= retracement_pct <= 62:
+        confidence += 15
+    if phase == "推進浪" and prev_high and current >= prev_high["price"]:
+        confidence += 10
+    confidence = int(clamp(confidence, 30, 85))
+
+    if phase == "推進浪":
+        summary = f"波浪輔助：目前偏 {wave_label}，前段回檔約 {retracement_pct:.1f}%，若守住最近低點，趨勢仍有延伸機會。"
+    elif phase == "修正浪":
+        summary = f"波浪輔助：目前偏 {wave_label}，回檔約 {retracement_pct:.1f}%，需等止跌或突破前高確認。"
+    else:
+        summary = f"波浪輔助：目前偏 {wave_label}，方向尚未明朗，宜搭配支撐壓力與量能確認。"
+
+    return {
+        "phase": phase,
+        "wave_label": wave_label,
+        "confidence": confidence,
+        "retracement_pct": retracement_pct,
+        "summary": summary,
+        "levels": {"last_swing_high": round(float(last_high["price"]), 2), "last_swing_low": round(float(last_low["price"]), 2)},
+        "pivots": pivots,
+    }
+
+
+def build_technical_conclusion(ohlc, ind, key_levels, wave=None):
+    last = ohlc[-1]
+    prev = ohlc[-2]
+    closes = [r["close"] for r in ohlc]
+    avg_volume20 = sma([r["volume"] for r in ohlc[-20:]], 20)
+    volume_ratio = last["volume"] / avg_volume20 if avg_volume20 else 1
+    change_pct = (last["close"] - prev["close"]) / prev["close"] * 100 if prev["close"] else 0
+    high60 = ind["high"]
+    low60 = ind["low"]
+    range_pos = (last["close"] - low60) / (high60 - low60) if high60 > low60 else 0.5
+    ma_bull = ind["ma5"] > ind["ma20"] > ind["ma60"]
+    above_ma20 = last["close"] > ind["ma20"]
+    above_ma60 = last["close"] > ind["ma60"]
+    macd_hist = ind["macd"]["hist"]
+    kd_k = ind["kd"]["k"]
+    kd_d = ind["kd"]["d"]
+    atr_pct = ind.get("atr14", 0) / last["close"] * 100 if last["close"] else 0
+    support_low, support_high = key_levels["support"]
+    resistance_low, resistance_high = key_levels["resistance"]
+
+    if ma_bull and above_ma20:
+        trend = "均線多頭排列，趨勢結構偏多"
+    elif above_ma20 and above_ma60:
+        trend = "股價站上中期均線，趨勢仍偏多整理"
+    elif above_ma60:
+        trend = "股價守在 MA60 上方，但短線結構尚未轉強"
+    else:
+        trend = "股價跌破中期均線，技術結構偏弱"
+
+    if macd_hist > 0 and kd_k > kd_d and ind["rsi"] < 75:
+        momentum = "動能仍有延續"
+    elif ind["rsi"] >= 75 or kd_k >= 85:
+        momentum = "指標進入高檔，追價風險升高"
+    elif macd_hist < 0 and kd_k < kd_d:
+        momentum = "動能轉弱，需等止跌訊號"
+    else:
+        momentum = "動能中性，宜觀察量價配合"
+
+    if volume_ratio >= 1.8 and change_pct > 3:
+        volume = "量能放大推升，短線慣性強但震盪也會放大"
+    elif volume_ratio >= 1.8 and change_pct <= 0:
+        volume = "爆量未能上攻，需留意換手或賣壓"
+    elif volume_ratio < 0.7:
+        volume = "量能不足，突破有效性需確認"
+    else:
+        volume = "量能尚屬正常"
+
+    if last["close"] >= resistance_low * 0.98:
+        position = f"目前接近壓力區 {price_range_text(resistance_low, resistance_high)}"
+    elif support_low <= last["close"] <= support_high * 1.03:
+        position = f"目前位於支撐區 {price_range_text(support_low, support_high)} 附近"
+    elif range_pos >= 0.8:
+        position = "股價位於近 60 日高檔區"
+    elif range_pos <= 0.25:
+        position = "股價仍在近 60 日低檔區"
+    else:
+        position = "股價位於區間中段"
+
+    volatility = "波動偏大，停損與部位需放寬控管" if atr_pct >= 5 else "波動可控"
+    wave_text = f"{wave['summary']}" if wave else "波浪輔助：尚未納入。"
+    return f"{trend}；{momentum}。{position}，{volatility}。{wave_text}"
+
+
+def add_risk(risks, category, text, priority):
+    risks.append({"category": category, "text": text, "priority": priority})
+
+
+def has_negative_news(events):
+    keywords = ["下修", "衰退", "虧損", "利空", "遭", "罰", "訴訟", "調查", "裁員", "減產", "跌", "不如預期"]
+    for item in events.get("items", [])[:5]:
+        title = item.get("title", "")
+        if any(k in title for k in keywords):
+            return True
+    return False
+
+
+def build_dynamic_risks(ohlc, ind, key_levels, chip_rows, broker_rows, fundamentals):
+    last = ohlc[-1]
+    risks = []
+    resistance_low, resistance_high = key_levels["resistance"]
+    support_low, support_high = key_levels["support"]
+    atr_pct = ind.get("atr14", 0) / last["close"] * 100 if last["close"] else 0
+    if last["close"] >= resistance_low * 0.98:
+        add_risk(risks, "技術", f"接近壓力區 {price_range_text(resistance_low, resistance_high)}", 86)
+    if ind["rsi"] >= 75 or ind["kd"]["k"] >= 85:
+        add_risk(risks, "技術", "指標高檔，拉回風險升高", 82)
+    if atr_pct >= 5:
+        add_risk(risks, "技術", f"ATR 偏高，震盪幅度大", 78)
+    if last["close"] < support_low:
+        add_risk(risks, "技術", f"跌破支撐區 {price_range_text(support_low, support_high)}", 90)
+
+    recent_inst = chip_rows[:3] if chip_rows else []
+    inst_sum = sum(r.get("total", 0) for r in recent_inst)
+    if recent_inst and inst_sum < 0:
+        add_risk(risks, "籌碼", "近 3 日法人偏賣", 76)
+    if broker_rows.get("status") in {"token_required", "no_data"}:
+        add_risk(risks, "籌碼", "分點資料不足，主力判斷不完整", 62)
+    sell_conc = broker_rows.get("summary", {}).get("sell_concentration", 0)
+    if sell_conc >= 0.55:
+        add_risk(risks, "籌碼", "賣壓集中少數分點", 74)
+
+    revenue = fundamentals.get("revenue", {})
+    financial = fundamentals.get("financial", {})
+    valuation = fundamentals.get("valuation", {})
+    events = fundamentals.get("events", {})
+    yoy = revenue.get("yoy_pct")
+    if yoy is not None and yoy < 0:
+        add_risk(risks, "基本面", "月營收年增轉弱", 80)
+    opm = financial.get("operating_margin")
+    if opm is not None and opm < 8:
+        add_risk(risks, "基本面", "營益率偏低", 67)
+    elif financial.get("status") != "ok":
+        add_risk(risks, "基本面", "財報資料不足", 55)
+    per = valuation.get("per")
+    pbr = valuation.get("pbr")
+    if per is not None and per >= 45:
+        add_risk(risks, "估值", "PER 偏高，估值修正風險大", 84)
+    elif per is not None and per >= 30:
+        add_risk(risks, "估值", "估值已有期待", 66)
+    if pbr is not None and pbr >= 8:
+        add_risk(risks, "估值", "PBR 偏高，需成長支撐", 70)
+    if events.get("status") == "ok" and has_negative_news(events):
+        add_risk(risks, "事件", "近期有負面新聞關鍵字", 88)
+    elif events.get("status") != "ok":
+        add_risk(risks, "事件", "事件資料不足，留意公告", 58)
+
+    seen = set()
+    out = []
+    for risk in sorted(risks, key=lambda r: r["priority"], reverse=True):
+        key = (risk["category"], risk["text"])
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({"category": risk["category"], "text": risk["text"]})
+        if len(out) >= 5:
+            break
+    return out or [{"category": "綜合", "text": "暫無明顯單一風險，仍需控管部位"}]
+
+
+def clamp(value, low, high):
+    return max(low, min(high, value))
+
+
+def build_power_gauge(ohlc, ind, chip_rows, broker_rows, fundamentals, risks):
+    last = ohlc[-1]
+    prev = ohlc[-2]
+    score = 50
+    drivers = []
+
+    ma_bull = ind["ma5"] > ind["ma20"] > ind["ma60"]
+    above_ma20 = last["close"] > ind["ma20"]
+    if ma_bull and above_ma20:
+        score += 14
+        drivers.append("技術偏多")
+    elif above_ma20:
+        score += 7
+        drivers.append("站上短中期均線")
+    elif last["close"] < ind["ma60"]:
+        score -= 10
+        drivers.append("跌破中期均線")
+
+    if ind["macd"]["hist"] > 0 and ind["kd"]["k"] > ind["kd"]["d"]:
+        score += 6
+        drivers.append("動能轉強")
+    elif ind["macd"]["hist"] < 0 and ind["kd"]["k"] < ind["kd"]["d"]:
+        score -= 6
+        drivers.append("動能轉弱")
+    if ind["rsi"] >= 75 or ind["kd"]["k"] >= 85:
+        score -= 5
+        drivers.append("短線過熱扣分")
+
+    recent_inst = (chip_rows or [])[:3]
+    inst_sum = sum(int(r.get("total", 0)) for r in recent_inst)
+    if inst_sum > 0:
+        score += 9
+        drivers.append("法人偏買")
+    elif inst_sum < 0:
+        score -= 9
+        drivers.append("法人偏賣")
+
+    avg_volume20 = sma([r["volume"] for r in ohlc[-20:]], 20)
+    volume_ratio = last["volume"] / avg_volume20 if avg_volume20 else 1
+    change_pct = (last["close"] - prev["close"]) / prev["close"] * 100 if prev["close"] else 0
+    if volume_ratio >= 1.5 and change_pct > 0:
+        score += 6
+        drivers.append("放量收紅")
+    elif volume_ratio >= 1.5 and change_pct < 0:
+        score -= 8
+        drivers.append("放量收黑")
+
+    net_top5 = broker_rows.get("summary", {}).get("net_top5", 0)
+    if net_top5 > 0:
+        score += 4
+        drivers.append("分點偏買")
+    elif net_top5 < 0:
+        score -= 4
+        drivers.append("分點偏賣")
+
+    fundamental_score = fundamentals.get("score", 3)
+    score += (fundamental_score - 3) * 5
+    if fundamental_score >= 4:
+        drivers.append("基本面加分")
+    elif fundamental_score <= 2:
+        drivers.append("基本面扣分")
+
+    score -= min(10, len(risks) * 2)
+    if risks:
+        drivers.append("風險項目扣分")
+
+    bull = int(round(clamp(score, 0, 100)))
+    if bull >= 65:
+        label = "偏多"
+    elif bull >= 56:
+        label = "中性偏多"
+    elif bull <= 35:
+        label = "偏空"
+    elif bull <= 44:
+        label = "中性偏空"
+    else:
+        label = "中性"
+    return {"bull": bull, "bear": 100 - bull, "label": label, "drivers": drivers[:3]}
+
+
+def build_card_json(code, name, ohlc, institutional=None, brokers=None, fundamentals=None):
     ind = compute_indicators(ohlc)
     last, prev = ohlc[-1], ohlc[-2]
     change = round(last["close"] - prev["close"], 2)
     change_pct = round(change / prev["close"] * 100, 2) if prev["close"] else 0
-    resistance_low = ind["high"]
-    resistance_high = ind["high"] * 1.04
-    support_low = ind["ma20"] * 0.98
-    support_high = ind["ma20"] * 1.02
-    strong_low = ind["ma60"] * 0.98
-    strong_high = ind["ma60"] * 1.02
-    stop = min(ind["ma60"] * 0.95, support_low * 0.92)
+    key_levels = compute_key_levels(ohlc, ind)
+    resistance_low, resistance_high = key_levels["resistance"]
+    support_low, support_high = key_levels["support"]
+    strong_low, strong_high = key_levels["strong_support"]
+    stop = key_levels["stop_loss"]
     hot = ind["rsi"] >= 70 or ind["kd"]["k"] >= 80
     above_ma20 = last["close"] > ind["ma20"]
     above_ma5 = last["close"] > ind["ma5"]
-    if hot and above_ma20:
-        tech_conclusion = "短線趨勢仍偏強，但技術指標已進入高檔區，追價前應留意拉回震盪。"
-    elif above_ma20 and not above_ma5:
-        tech_conclusion = "股價仍在中期均線之上，但短線低於 5 日線，屬高檔震盪整理，宜觀察是否重新轉強。"
-    else:
-        tech_conclusion = "技術面偏整理，建議等待股價重新站穩關鍵均線後再觀察。"
+    display_ohlc = ohlc[-120:]
+    wave = build_wave_analysis(ohlc)
+    tech_conclusion = build_technical_conclusion(ohlc, ind, key_levels, wave)
     chip_rows = institutional or empty_chip_rows(ohlc)
     broker_rows = brokers or summarize_broker_flow([], date_label=last["date"])
-    chip_conclusion = broker_conclusion(broker_rows, chip_rows)
+    fallback = build_broker_fallback(broker_rows, chip_rows, ohlc)
+    if fallback:
+        broker_rows = {**broker_rows, "fallback": fallback}
+    chip_conclusion = broker_conclusion(broker_rows, chip_rows, ohlc)
+    fundamentals = build_fundamental_summary(fundamentals)
+    event_summary = fundamentals.get("events", {}).get("summary", "近期事件資料不足。")
+    risks = build_dynamic_risks(ohlc, ind, key_levels, chip_rows, broker_rows, fundamentals)
+    power = build_power_gauge(ohlc, ind, chip_rows, broker_rows, fundamentals, risks)
+    if fundamentals["score"] >= 4 and above_ma20:
+        overall = "技術趨勢與基本面資料同向偏多，但估值與事件風險仍需控管。"
+    elif fundamentals["score"] <= 2:
+        overall = "基本面支撐偏弱或估值壓力較高，操作上應降低追價比重。"
+    elif above_ma20:
+        overall = "技術面偏強，基本面訊號中性，適合等待回檔或確認事件利多延續。"
+    else:
+        overall = "技術面整理，基本面需持續追蹤，短線宜保守觀察。"
+    composite = [
+        {"label": "技術面", "text": build_composite_technical_summary(ohlc, ind, key_levels, wave)},
+        {"label": "籌碼面", "text": build_composite_chip_summary(chip_rows, broker_rows)},
+        {"label": "基本面", "text": build_composite_fundamental_summary(fundamentals)},
+        {"label": "操作結論", "text": overall},
+    ]
     return {
-        "stock": {"name": name, "code": code, "title": "分析與建議", "price": last["close"], "change": change, "change_pct": change_pct, "volume": f"{last['volume']:,}", "updated_at": "最新收盤"},
-        "ohlc": ohlc[-64:],
-        "technical": {**ind, "conclusion": tech_conclusion},
-        "chips": {"institutional": chip_rows, "brokers": broker_rows, "major": major_rows_from_price(ohlc), "conclusion": chip_conclusion},
+        "stock": {"name": name, "code": code, "title": "分析與建議", "price": last["close"], "change": change, "change_pct": change_pct, "volume": f"{last['volume']:,}", "updated_at": last.get("full_date", last["date"]).replace("-", "/")},
+        "ohlc": display_ohlc,
+        "technical": {**ind, "wave": wave, "conclusion": tech_conclusion},
+        "chips": {"institutional": chip_rows, "price": price_rows_for_chip_chart(ohlc), "brokers": broker_rows, "cost": build_cost_profile(ohlc), "major": major_rows_from_price(ohlc), "conclusion": chip_conclusion},
+        "fundamentals": fundamentals,
         "advice": {
-            "bullets": ["短線波動偏大，先避免無計畫追價", "若已持有，可用關鍵支撐作為移動停利參考", "等待回測支撐或站穩壓力再觀察", "部位不宜過度集中於單一個股", "跌破停損參考應控制風險"],
-            "levels": {"resistance": level_text(resistance_low, resistance_high), "support": level_text(support_low, support_high), "strong_support": level_text(strong_low, strong_high), "stop_loss": level_text(stop)},
+            "bullets": build_concise_bullets(tech_conclusion, fundamentals, above_ma20, hot, stop),
+            "levels": {
+                "resistance": price_range_text(resistance_low, resistance_high),
+                "support": price_range_text(support_low, support_high),
+                "strong_support": price_range_text(strong_low, strong_high),
+                "stop_loss": level_text(round_price(stop)),
+                "factors": key_levels["factors"],
+            },
             "paths": {"up": f"若站穩 {resistance_low:.0f}，有機會挑戰 {resistance_high:.0f} 以上", "pullback": f"若跌破 {support_high:.0f}，可能回測 {strong_low:.0f}～{strong_high:.0f}", "weak": f"若跌破 {stop:.0f}，短線轉弱，應降低部位"},
-            "long_view": ["題材若仍具成長性，可列入觀察", "但目前波動較大，較適合短中期操作", "不適合重壓單一個股", "可搭配 ETF 或不同產業分散風險"],
-            "risk": "漲幅大、量能放大或籌碼分歧時，容易出現劇烈震盪；本圖僅供資訊整理，不代表投資建議。",
-            "overall": "趨勢偏強但波動高，適合觀察關鍵價位，不適合無計畫追高。",
+            "long_view": build_dynamic_long_view(fundamentals, above_ma20, hot),
+            "risks": risks,
+            "risk": "；".join(f"{r['category']}：{r['text']}" for r in risks),
+            "composite": composite,
+            "power": power,
+            "overall": overall,
         },
         "scores": [
             {"item": "股價趨勢", "stars": 4 if above_ma20 else 3, "comment": "偏強" if above_ma20 else "震盪"},
             {"item": "技術面", "stars": 3 if hot else 4, "comment": "短線過熱" if hot else "偏多"},
             {"item": "籌碼面", "stars": 3, "comment": "需要觀察"},
-            {"item": "操作難度", "stars": 4 if hot else 3, "comment": "偏高" if hot else "中等"},
+            {"item": "基本面", "stars": fundamentals["score"], "comment": "偏強" if fundamentals["score"] >= 4 else "偏弱" if fundamentals["score"] <= 2 else "中性"},
         ],
     }
 
 
 def fetch_finmind_prices(code, start_date):
     url = "https://api.finmindtrade.com/api/v4/data?" + urllib.parse.urlencode({"dataset": "TaiwanStockPrice", "data_id": code, "start_date": start_date})
-    with urllib.request.urlopen(url, timeout=40) as r:
-        data = json.load(r)
+    try:
+        with urllib.request.urlopen(url, timeout=40) as r:
+            data = json.load(r)
+    except Exception:
+        fallback = fetch_twse_prices(code, start_date)
+        if fallback:
+            return fallback
+        raise
     if data.get("status") != 200 or not data.get("data"):
+        fallback = fetch_twse_prices(code, start_date)
+        if fallback:
+            return fallback
         raise RuntimeError(f"FinMind price fetch failed: {data.get('msg') or data.get('status')}")
     return normalize_finmind_price_rows(data["data"])
+
+
+def month_starts(start_date, end_date):
+    y, m = start_date.year, start_date.month
+    while (y, m) <= (end_date.year, end_date.month):
+        yield date(y, m, 1)
+        if m == 12:
+            y, m = y + 1, 1
+        else:
+            m += 1
+
+
+def fetch_twse_prices(code, start_date):
+    try:
+        start = date.fromisoformat(start_date)
+    except Exception:
+        start = date.today() - timedelta(days=260)
+    rows = []
+    for month in month_starts(start, date.today()):
+        params = urllib.parse.urlencode({"response": "json", "date": month.strftime("%Y%m%d"), "stockNo": code})
+        url = "https://www.twse.com.tw/exchangeReport/STOCK_DAY?" + params
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=30) as r:
+                data = json.load(r)
+        except Exception:
+            continue
+        if data.get("stat") == "OK" and data.get("data"):
+            rows.extend(data["data"])
+    normalized = normalize_twse_price_rows(rows)
+    return [r for r in normalized if r["full_date"] >= start.isoformat()]
 
 
 def fetch_finmind_institutional(code, start_date):
@@ -324,27 +1675,182 @@ def fetch_finmind_institutional(code, start_date):
     return rows or None
 
 
+def fetch_finmind_stock_info(code):
+    url = "https://api.finmindtrade.com/api/v4/data?" + urllib.parse.urlencode({"dataset": "TaiwanStockInfo", "data_id": code})
+    try:
+        with urllib.request.urlopen(url, timeout=40) as r:
+            data = json.load(r)
+    except Exception:
+        return None
+    if data.get("status") != 200 or not data.get("data"):
+        return None
+    rows = data["data"]
+    categories = []
+    market = None
+    for row in rows:
+        category = row.get("industry_category")
+        if category and category not in categories:
+            categories.append(category)
+        market = market or row.get("type")
+    category_text = " / ".join(categories[:2]) if categories else "資料不足"
+    return {
+        "category": category_text,
+        "market": market or "資料不足",
+        "summary": f"產業分類：{category_text}。",
+    }
+
+
+def fetch_finmind_month_revenue(code, start_date):
+    url = "https://api.finmindtrade.com/api/v4/data?" + urllib.parse.urlencode({"dataset": "TaiwanStockMonthRevenue", "data_id": code, "start_date": start_date})
+    try:
+        with urllib.request.urlopen(url, timeout=40) as r:
+            data = json.load(r)
+    except Exception:
+        return None
+    if data.get("status") != 200 or not data.get("data"):
+        return None
+    rows = sorted(data["data"], key=lambda r: (int(r.get("revenue_year", 0)), int(r.get("revenue_month", 0))))
+    latest = rows[-1]
+    prev = rows[-2] if len(rows) >= 2 else None
+    latest_revenue = float(latest.get("revenue", 0))
+    prev_revenue = float(prev.get("revenue", 0)) if prev else None
+    same_month_last_year = next((
+        r for r in rows
+        if int(r.get("revenue_year", 0)) == int(latest.get("revenue_year", 0)) - 1
+        and int(r.get("revenue_month", 0)) == int(latest.get("revenue_month", 0))
+    ), None)
+    yoy = None
+    if same_month_last_year and float(same_month_last_year.get("revenue", 0)):
+        yoy = (latest_revenue - float(same_month_last_year["revenue"])) / float(same_month_last_year["revenue"]) * 100
+    mom = None
+    if prev_revenue:
+        mom = (latest_revenue - prev_revenue) / prev_revenue * 100
+    label = f"{latest.get('revenue_year')}/{int(latest.get('revenue_month')):02d}"
+    return {
+        "status": "ok",
+        "date": label,
+        "revenue": latest_revenue,
+        "yoy_pct": None if yoy is None else round(yoy, 2),
+        "mom_pct": None if mom is None else round(mom, 2),
+        "summary": f"最新月營收 {label} 為 {money_billion(latest_revenue)}，年增 {pct_text(yoy)}、月增 {pct_text(mom)}。",
+    }
+
+
+def fetch_finmind_valuation(code, start_date):
+    url = "https://api.finmindtrade.com/api/v4/data?" + urllib.parse.urlencode({"dataset": "TaiwanStockPER", "data_id": code, "start_date": start_date})
+    try:
+        with urllib.request.urlopen(url, timeout=40) as r:
+            data = json.load(r)
+    except Exception:
+        return None
+    if data.get("status") != 200 or not data.get("data"):
+        return None
+    latest = sorted(data["data"], key=lambda r: r.get("date", ""))[-1]
+    per = float(latest["PER"]) if latest.get("PER") not in (None, "") else None
+    pbr = float(latest["PBR"]) if latest.get("PBR") not in (None, "") else None
+    dividend_yield = float(latest["dividend_yield"]) if latest.get("dividend_yield") not in (None, "") else None
+    pressure = "估值偏高，追價需更重視成長是否延續。" if per and per >= 35 else "估值壓力中性，仍需與同業及成長性比較。"
+    return {
+        "status": "ok",
+        "date": latest.get("date", ""),
+        "per": per,
+        "pbr": pbr,
+        "dividend_yield": dividend_yield,
+        "summary": f"估值：PER {per if per is not None else 'N/A'}、PBR {pbr if pbr is not None else 'N/A'}、殖利率 {dividend_yield if dividend_yield is not None else 'N/A'}%。{pressure}",
+    }
+
+
+def fetch_finmind_financials(code, start_date):
+    url = "https://api.finmindtrade.com/api/v4/data?" + urllib.parse.urlencode({"dataset": "TaiwanStockFinancialStatements", "data_id": code, "start_date": start_date})
+    try:
+        with urllib.request.urlopen(url, timeout=40) as r:
+            data = json.load(r)
+    except Exception:
+        return None
+    if data.get("status") != 200 or not data.get("data"):
+        return None
+    latest_date = max(r["date"] for r in data["data"])
+    rows = {r["type"]: float(r["value"]) for r in data["data"] if r["date"] == latest_date}
+    revenue = rows.get("Revenue")
+    gross = rows.get("GrossProfit")
+    operating = rows.get("OperatingIncome")
+    net = rows.get("IncomeAfterTaxes")
+    eps = rows.get("EPS")
+    gross_margin = gross / revenue * 100 if gross is not None and revenue else None
+    operating_margin = operating / revenue * 100 if operating is not None and revenue else None
+    net_margin = net / revenue * 100 if net is not None and revenue else None
+    return {
+        "status": "ok",
+        "date": latest_date,
+        "eps": None if eps is None else round(eps, 2),
+        "gross_margin": None if gross_margin is None else round(gross_margin, 2),
+        "operating_margin": None if operating_margin is None else round(operating_margin, 2),
+        "net_margin": None if net_margin is None else round(net_margin, 2),
+        "summary": f"最新財報 {latest_date}：EPS {round(eps, 2) if eps is not None else 'N/A'}，毛利率 {pct_text(gross_margin)}、營益率 {pct_text(operating_margin)}、淨利率 {pct_text(net_margin)}。",
+    }
+
+
+def fetch_finmind_news(code, start_date, limit=3):
+    url = "https://api.finmindtrade.com/api/v4/data?" + urllib.parse.urlencode({"dataset": "TaiwanStockNews", "data_id": code, "start_date": start_date})
+    try:
+        with urllib.request.urlopen(url, timeout=40) as r:
+            data = json.load(r)
+    except Exception:
+        return None
+    if data.get("status") != 200 or not data.get("data"):
+        return None
+    rows = sorted(data["data"], key=lambda r: r.get("date", ""), reverse=True)[:limit]
+    items = [{"date": r.get("date", "")[:10], "source": r.get("source", ""), "title": r.get("title", "")} for r in rows]
+    summary = "近期新聞：" + (items[0]["title"][:42] if items else "資料不足") + "。"
+    return {"status": "ok", "items": items, "summary": summary}
+
+
+def fetch_fundamentals(code):
+    info = fetch_finmind_stock_info(code)
+    revenue = fetch_finmind_month_revenue(code, (date.today() - timedelta(days=500)).isoformat())
+    valuation = fetch_finmind_valuation(code, (date.today() - timedelta(days=45)).isoformat())
+    financial = fetch_finmind_financials(code, (date.today() - timedelta(days=560)).isoformat())
+    news = fetch_finmind_news(code, (date.today() - timedelta(days=30)).isoformat())
+    google = fetch_google_finance_snapshot(code)
+    f = empty_fundamentals()
+    if info:
+        f["industry"] = info
+    if revenue:
+        f["revenue"] = revenue
+    if valuation:
+        f["valuation"] = valuation
+    if financial:
+        f["financial"] = financial
+    if news:
+        f["events"] = news
+    if google:
+        f["google_finance"] = google
+    return build_fundamental_summary(f)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("query")
     ap.add_argument("--out", default=None)
     ap.add_argument("--broker-rows", default=None, help="optional JSON file with broker branch buy/sell rows")
-    ap.add_argument("--broker-source", choices=["none", "official"], default="none", help="broker flow source; official uses public TWSE/TPEx OpenAPI only")
+    ap.add_argument("--broker-source", choices=["none", "official"], default="none", help="broker flow source; official uses TPEx public OpenAPI and optional FINMIND_TOKEN fallback")
+    ap.add_argument("--finmind-token", default=os.environ.get("FINMIND_TOKEN"), help="optional FinMind sponsor token for listed-stock broker branch data")
     args = ap.parse_args()
     code, name = resolve_stock(args.query)
     start = (date.today() - timedelta(days=260)).isoformat()
     prices = fetch_finmind_prices(code, start)
     inst = fetch_finmind_institutional(code, (date.today() - timedelta(days=45)).isoformat())
+    fundamentals = fetch_fundamentals(code)
     brokers = None
     if args.broker_source == "official":
-        brokers = fetch_official_broker_flow(code)
+        brokers = fetch_broker_flow(code, prices[-1].get("full_date"), token=args.finmind_token)
         if name == code and brokers.get("stock_name"):
             name = brokers["stock_name"]
     if args.broker_rows:
         raw_brokers = json.loads(Path(args.broker_rows).read_text())
         latest_date = prices[-1]["date"] if prices else None
         brokers = summarize_broker_flow(normalize_broker_rows(raw_brokers), date_label=latest_date)
-    card = build_card_json(code, name, prices, inst, brokers=brokers)
+    card = build_card_json(code, name, prices, inst, brokers=brokers, fundamentals=fundamentals)
     out = Path(args.out or f"data/{code}-{name}.json")
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(card, ensure_ascii=False, indent=2))

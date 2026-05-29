@@ -14,11 +14,42 @@ def test_sample_data_has_required_sections():
 
 def test_template_contains_dashboard_regions():
     html = (ROOT / "template.html").read_text()
-    for token in ["topbar", "technical-panel", "chip-panel", "advice-panel", "disclaimer", "brokerFlow"]:
+    for token in ["topbar", "technical-panel", "chip-panel", "advice-panel", "disclaimer", "brokerFlow", "costPanel", "compositeReview", "powerGauge", "instNetChart", "instSnapshot", "chip-legend", "inst-head-legend"]:
         assert token in html
+    for token in ["外資", "投信", "自營商", "合計", "黃線：收盤價"]:
+        assert token in html
+    assert html.index("kdChart") < html.index("powerGauge") < html.index("chip-panel")
+    assert html.index("inst-head-legend") < html.index("instSnapshot") < html.index("instNetChart")
+    assert html.index("brokerFlow") < html.index("costPanel") < html.index("advice-panel")
+    assert 'class="level-row"' in html
+    assert html.index("壓力區：") < html.index('data-bind="advice.levels.resistance"')
+    assert "path-box" not in html
+    assert "pathSvg" not in html
+    assert 'id="paths"' not in html
+    assert 'data-bind="technical.conclusion"' not in html
+    assert 'data-bind="chips.conclusion"' not in html
+    assert 'id="instTable"' not in html
 
 def test_render_script_exists_and_accepts_data_output_args():
     js = (ROOT / "render.js").read_text()
     assert "--data" in js
     assert "--out" in js
     assert "playwright" in js.lower()
+    assert "Asia/Taipei" in js
+    assert "data.stock?.name" in js
+
+def test_institutional_snapshot_shows_breakdown_first():
+    js = (ROOT / "template.js").read_text()
+    assert js.index("<ul><li>外資") < js.index("<div><b>${latest.date}")
+
+
+def test_k_chart_draws_wave_overlay_from_pivots():
+    js = (ROOT / "template.js").read_text()
+    css = (ROOT / "style.css").read_text()
+    assert "DATA.technical.wave" in js
+    assert "wave.pivots" in js
+    assert "wave-line" in js
+    assert "wave-dot" in js
+    assert "wave-label" in js
+    assert ".wave-line" in css
+    assert ".wave-dot" in css

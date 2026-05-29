@@ -8,6 +8,7 @@ from stock_data import (
     normalize_broker_rows,
     normalize_finmind_broker_rows,
     normalize_finmind_price_rows,
+    normalize_twse_price_rows,
     resolve_stock,
     summarize_broker_flow,
     build_dynamic_long_view,
@@ -61,6 +62,20 @@ def test_normalize_finmind_rows_outputs_ohlc_volume_in_lots():
     assert ohlc[0]["open"] == 99.3
     assert ohlc[0]["volume"] == 1000
     assert set(["date", "open", "high", "low", "close", "volume"]).issubset(ohlc[0])
+
+
+def test_normalize_twse_rows_outputs_ohlc_volume_in_lots():
+    ohlc = normalize_twse_price_rows([[
+        "115/05/22", "1,234,000", "58,000,000", "45.10", "47.20", "44.80", "46.50", "+0.70", "1,234", "",
+    ]])
+
+    assert ohlc[0]["full_date"] == "2026-05-22"
+    assert ohlc[0]["date"] == "05/22"
+    assert ohlc[0]["open"] == 45.1
+    assert ohlc[0]["high"] == 47.2
+    assert ohlc[0]["low"] == 44.8
+    assert ohlc[0]["close"] == 46.5
+    assert ohlc[0]["volume"] == 1234
 
 
 def test_compute_indicators_returns_core_values():

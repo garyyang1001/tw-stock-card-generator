@@ -10,6 +10,7 @@ STOCK_NAME_BY_CODE = {
     "2308": "台達電",
     "2313": "華通",
     "2317": "鴻海",
+    "2328": "廣宇",
     "2330": "台積電",
     "2382": "廣達",
     "2383": "台光電",
@@ -56,6 +57,7 @@ STOCK_ALIAS_TO_CODE = {
     "台達電": "2308",
     "華通": "2313",
     "鴻海": "2317",
+    "廣宇": "2328",
     "廣達": "2382",
     "台光電": "2383",
     "國碩": "2406",
@@ -130,6 +132,29 @@ def normalize_finmind_price_rows(rows):
             "low": round(float(r.get("min", r.get("low"))), 2),
             "close": round(float(r["close"]), 2),
             "volume": int(round(float(r.get("Trading_Volume", r.get("volume", 0))) / 1000)),
+        })
+    return out
+
+
+def parse_twse_number(value):
+    text = str(value or "").replace(",", "").replace("--", "").strip()
+    return float(text) if text else 0.0
+
+
+def normalize_twse_price_rows(rows):
+    out = []
+    for r in rows or []:
+        roc = str(r[0])
+        yy, mm, dd = [int(x) for x in roc.split("/")]
+        full_date = f"{yy + 1911:04d}-{mm:02d}-{dd:02d}"
+        out.append({
+            "full_date": full_date,
+            "date": f"{mm:02d}/{dd:02d}",
+            "open": round(parse_twse_number(r[3]), 2),
+            "high": round(parse_twse_number(r[4]), 2),
+            "low": round(parse_twse_number(r[5]), 2),
+            "close": round(parse_twse_number(r[6]), 2),
+            "volume": int(round(parse_twse_number(r[1]) / 1000)),
         })
     return out
 
@@ -1574,11 +1599,51 @@ def build_card_json(code, name, ohlc, institutional=None, brokers=None, fundamen
 
 def fetch_finmind_prices(code, start_date):
     url = "https://api.finmindtrade.com/api/v4/data?" + urllib.parse.urlencode({"dataset": "TaiwanStockPrice", "data_id": code, "start_date": start_date})
-    with urllib.request.urlopen(url, timeout=40) as r:
-        data = json.load(r)
+    try:
+        with urllib.request.urlopen(url, timeout=40) as r:
+            data = json.load(r)
+    except Exception:
+        fallback = fetch_twse_prices(code, start_date)
+        if fallback:
+            return fallback
+        raise
     if data.get("status") != 200 or not data.get("data"):
+        fallback = fetch_twse_prices(code, start_date)
+        if fallback:
+            return fallback
         raise RuntimeError(f"FinMind price fetch failed: {data.get('msg') or data.get('status')}")
     return normalize_finmind_price_rows(data["data"])
+
+
+def month_starts(start_date, end_date):
+    y, m = start_date.year, start_date.month
+    while (y, m) <= (end_date.year, end_date.month):
+        yield date(y, m, 1)
+        if m == 12:
+            y, m = y + 1, 1
+        else:
+            m += 1
+
+
+def fetch_twse_prices(code, start_date):
+    try:
+        start = date.fromisoformat(start_date)
+    except Exception:
+        start = date.today() - timedelta(days=260)
+    rows = []
+    for month in month_starts(start, date.today()):
+        params = urllib.parse.urlencode({"response": "json", "date": month.strftime("%Y%m%d"), "stockNo": code})
+        url = "https://www.twse.com.tw/exchangeReport/STOCK_DAY?" + params
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=30) as r:
+                data = json.load(r)
+        except Exception:
+            continue
+        if data.get("stat") == "OK" and data.get("data"):
+            rows.extend(data["data"])
+    normalized = normalize_twse_price_rows(rows)
+    return [r for r in normalized if r["full_date"] >= start.isoformat()]
 
 
 def fetch_finmind_institutional(code, start_date):
